@@ -98,10 +98,10 @@ func TestHyperCodecCheck(t *testing.T) {
 
 	// test hyperMessageUnmarshal check
 	codec = &thriftCodec{FrugalRead}
-	test.Assert(t, hyperMessageUnmarshalAvailable(&MockNoTagArgs{}, msg.PayloadLen()) == false)
-	test.Assert(t, hyperMessageUnmarshalAvailable(&MockFrugalTagArgs{}, msg.PayloadLen()) == false)
+	test.Assert(t, codec.hyperMessageUnmarshalAvailable(&MockNoTagArgs{}, msg.PayloadLen()) == false)
+	test.Assert(t, codec.hyperMessageUnmarshalAvailable(&MockFrugalTagArgs{}, msg.PayloadLen()) == false)
 	msg.SetPayloadLen(1)
-	test.Assert(t, hyperMessageUnmarshalAvailable(&MockFrugalTagArgs{}, msg.PayloadLen()) == true)
+	test.Assert(t, codec.hyperMessageUnmarshalAvailable(&MockFrugalTagArgs{}, msg.PayloadLen()) == true)
 }
 
 func TestFrugalCodec(t *testing.T) {
@@ -213,6 +213,20 @@ func TestUnmarshalThriftDataFrugal(t *testing.T) {
 	// Basic can be used for disabling frugal
 	err := UnmarshalThriftData(context.Background(), NewThriftCodecWithConfig(Basic), "mock", mockReqThrift, req)
 	test.Assert(t, err != nil, err)
+}
+
+func TestThriftCodec_unmarshalThriftDataFrugal(t *testing.T) {
+	req := &MockFrugalTagReq{}
+	codec := &thriftCodec{FrugalRead | EnableSkipDecoder}
+	tProt := NewBinaryProtocol(remote.NewReaderBuffer(mockReqThrift))
+	defer tProt.Recycle()
+	// specify dataLen with 0 so that skipDecoder works
+	err := codec.unmarshalThriftData(context.Background(), tProt, "mock", req, 0)
+	checkDecodeResult(t, err, &fast.MockReq{
+		Msg:     req.Msg,
+		StrList: req.StrList,
+		StrMap:  req.StrMap,
+	})
 }
 
 func Test_verifyMarshalThriftDataFrugal(t *testing.T) {
