@@ -17,8 +17,8 @@
 package thrift
 
 import (
-	"errors"
 	"fmt"
+
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/codec/perrors"
@@ -153,7 +153,7 @@ func (sd *skipDecoder) skipElem(typeId thrift.TType) (err error) {
 			return
 		}
 	default:
-		return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, errors.New(fmt.Sprintf("Unknown data type %d", typeId)))
+		return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("Unknown data type %d", typeId))
 	}
 	return nil
 }
