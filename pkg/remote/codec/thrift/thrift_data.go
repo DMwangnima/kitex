@@ -159,12 +159,16 @@ func (c thriftCodec) fastUnmarshal(tProt *BinaryProtocol, data interface{}, data
 		_, err = msg.FastRead(buf)
 		return err
 	}
-	sd := newSkipDecoder(tProt)
+	sd := newSkipDecoder(tProt, nextCopyBufferType)
 	defer sd.Recycle()
 	if err := sd.skipStruct(); err != nil {
 		return remote.NewTransError(remote.ProtocolError, err)
 	}
-	_, err := msg.FastRead(sd.buffer())
+	buf, err := sd.buffer()
+	if err != nil {
+		return remote.NewTransError(remote.ProtocolError, err)
+	}
+	_, err = msg.FastRead(buf)
 	return err
 }
 
@@ -202,12 +206,16 @@ func (c thriftCodec) hyperUnmarshal(tProt *BinaryProtocol, data interface{}, dat
 		}
 		return c.hyperMessageUnmarshal(buf, data)
 	}
-	sd := newSkipDecoder(tProt)
+	sd := newSkipDecoder(tProt, nextCopyBufferType)
 	defer sd.Recycle()
 	if err := sd.skipStruct(); err != nil {
 		return remote.NewTransError(remote.ProtocolError, err)
 	}
-	return c.hyperMessageUnmarshal(sd.buffer(), data)
+	buf, err := sd.buffer()
+	if err != nil {
+		return remote.NewTransError(remote.ProtocolError, err)
+	}
+	return c.hyperMessageUnmarshal(buf, data)
 }
 
 // verifyUnmarshalBasicThriftDataType verifies whether data could be unmarshal by old thrift way

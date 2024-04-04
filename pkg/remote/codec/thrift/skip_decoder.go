@@ -18,6 +18,7 @@ package thrift
 
 import (
 	"fmt"
+	"github.com/bytedance/gopkg/lang/mcache"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -25,12 +26,24 @@ import (
 	"github.com/cloudwego/kitex/pkg/remote/codec/perrors"
 )
 
+type bufferType uint8
+
 const (
 	EnableSkipDecoder CodecType = 0b10000
 
 	// defaultBufSize is the default buffer size
 	defaultBufSize = 128
+
+	nextCopyBufferType   bufferType = 1
+	peekBufferType       bufferType = 2
+	nextMcacheBufferType bufferType = 3
 )
+
+type skipBuffer interface {
+	remote.ByteBuffer
+	Buffer() ([]byte, error)
+	Free()
+}
 
 // nextCopyBuffer wraps the remote.ByteBuffer and appends the read data to buf
 // when ByteBufferNext is called
@@ -47,10 +60,89 @@ func (b *nextCopyBuffer) Next(n int) ([]byte, error) {
 	return buf, err
 }
 
-func newNextCopyBuffer(bb remote.ByteBuffer) *nextCopyBuffer {
-	return &nextCopyBuffer{
-		ByteBuffer: bb,
-		buf:        make([]byte, 0, defaultBufSize),
+func (b *nextCopyBuffer) Buffer() ([]byte, error) {
+	return b.buf, nil
+}
+
+func (b *nextCopyBuffer) Free() {
+	return
+}
+
+type peekBuffer struct {
+	remote.ByteBuffer
+	readNum int
+}
+
+func (b *peekBuffer) Next(n int) ([]byte, error) {
+	prev := b.readNum
+	next := prev + n
+	buf, err := b.ByteBuffer.Peek(next)
+	if err != nil {
+		return nil, err
+	}
+	b.readNum = next
+	return buf[prev:next], nil
+}
+
+func (b *peekBuffer) Buffer() ([]byte, error) {
+	return b.ByteBuffer.Peek(b.readNum)
+}
+
+func (b *peekBuffer) Free() {
+	return
+}
+
+type nextMcacheBuffer struct {
+	remote.ByteBuffer
+	buf []byte
+}
+
+func (b *nextMcacheBuffer) Next(n int) ([]byte, error) {
+	buf, err := b.ByteBuffer.Next(n)
+	if err != nil {
+		return nil, err
+	}
+	curSize := len(b.buf)
+	newSize := curSize + n
+	capacity := cap(b.buf)
+	if newSize < capacity {
+		b.buf = append(b.buf, buf...)
+		return buf, nil
+	}
+	newBuf := mcache.Malloc(0, capacity*2)
+	newBuf = append(newBuf, b.buf...)
+	mcache.Free(b.buf)
+	newBuf = append(newBuf, buf...)
+	b.buf = newBuf
+	return buf, nil
+}
+
+func (b *nextMcacheBuffer) Buffer() ([]byte, error) {
+	return b.buf, nil
+}
+
+func (b *nextMcacheBuffer) Free() {
+	mcache.Free(b.buf)
+}
+
+func newSkipBuffer(bb remote.ByteBuffer, bufTyp bufferType) skipBuffer {
+	switch bufTyp {
+	case nextCopyBufferType:
+		return &nextCopyBuffer{
+			ByteBuffer: bb,
+			buf:        make([]byte, 0, defaultBufSize),
+		}
+	case peekBufferType:
+		return &peekBuffer{
+			ByteBuffer: bb,
+		}
+	case nextMcacheBufferType:
+		return &nextMcacheBuffer{
+			ByteBuffer: bb,
+			buf:        mcache.Malloc(0, defaultBufSize),
+		}
+	default:
+		return nil
 	}
 }
 
@@ -58,14 +150,14 @@ func newNextCopyBuffer(bb remote.ByteBuffer) *nextCopyBuffer {
 // for making use of Frugal and FastCodec in standard Thrift Binary Protocol scenario.
 type skipDecoder struct {
 	tprot *BinaryProtocol
-	ncb   *nextCopyBuffer
+	sb    skipBuffer
 }
 
-func newSkipDecoder(tprot *BinaryProtocol) *skipDecoder {
-	ncb := newNextCopyBuffer(tprot.trans)
+func newSkipDecoder(tprot *BinaryProtocol, bufType bufferType) *skipDecoder {
+	sb := newSkipBuffer(tprot.trans, bufType)
 	return &skipDecoder{
-		tprot: NewBinaryProtocol(ncb),
-		ncb:   ncb,
+		tprot: NewBinaryProtocol(sb),
+		sb:    sb,
 	}
 }
 
@@ -176,10 +268,11 @@ func (sd *skipDecoder) skipStruct() (err error) {
 	}
 }
 
-func (sd *skipDecoder) buffer() []byte {
-	return sd.ncb.buf
+func (sd *skipDecoder) buffer() ([]byte, error) {
+	return sd.sb.Buffer()
 }
 
 func (sd *skipDecoder) Recycle() {
+	sd.sb.Free()
 	sd.tprot.Recycle()
 }

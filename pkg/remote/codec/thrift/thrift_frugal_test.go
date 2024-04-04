@@ -215,6 +215,20 @@ func TestUnmarshalThriftDataFrugal(t *testing.T) {
 	test.Assert(t, err != nil, err)
 }
 
+func TestThriftCodec_unmarshalThriftDataFrugal(t *testing.T) {
+	req := &MockFrugalTagReq{}
+	codec := &thriftCodec{FrugalRead | EnableSkipDecoder}
+	tProt := NewBinaryProtocol(remote.NewReaderBuffer(mockReqThrift))
+	defer tProt.Recycle()
+	// specify dataLen with 0 so that skipDecoder works
+	err := codec.unmarshalThriftData(context.Background(), tProt, "mock", req, 0)
+	checkDecodeResult(t, err, &fast.MockReq{
+		Msg:     req.Msg,
+		StrList: req.StrList,
+		StrMap:  req.StrMap,
+	})
+}
+
 func Test_verifyMarshalThriftDataFrugal(t *testing.T) {
 	err := verifyMarshalBasicThriftDataType(&MockFrugalTagArgs{})
 	test.Assert(t, err == errEncodeMismatchMsgType, err)

@@ -121,6 +121,20 @@ func TestUnmarshalThriftData(t *testing.T) {
 	// FrugalCodec: in thrift_frugal_amd64_test.go: TestUnmarshalThriftDataFrugal
 }
 
+func TestThriftCodec_unmarshalThriftData(t *testing.T) {
+	req := &fast.MockReq{}
+	codec := &thriftCodec{FastRead | EnableSkipDecoder}
+	tProt := NewBinaryProtocol(remote.NewReaderBuffer(mockReqThrift))
+	defer tProt.Recycle()
+	// specify dataLen with 0 so that skipDecoder works
+	err := codec.unmarshalThriftData(context.Background(), tProt, "mock", req, 0)
+	checkDecodeResult(t, err, &fast.MockReq{
+		Msg:     req.Msg,
+		StrList: req.StrList,
+		StrMap:  req.StrMap,
+	})
+}
+
 func TestUnmarshalThriftException(t *testing.T) {
 	// prepare exception thrift binary
 	transport := thrift.NewTMemoryBufferLen(marshalThriftBufferSize)
