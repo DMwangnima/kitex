@@ -18,6 +18,7 @@ package thrift
 
 import (
 	"fmt"
+
 	"github.com/bytedance/gopkg/lang/mcache"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -64,9 +65,7 @@ func (b *nextCopyBuffer) Buffer() ([]byte, error) {
 	return b.buf, nil
 }
 
-func (b *nextCopyBuffer) Free() {
-	return
-}
+func (b *nextCopyBuffer) Free() {}
 
 type peekBuffer struct {
 	remote.ByteBuffer
@@ -88,9 +87,7 @@ func (b *peekBuffer) Buffer() ([]byte, error) {
 	return b.ByteBuffer.Peek(b.readNum)
 }
 
-func (b *peekBuffer) Free() {
-	return
-}
+func (b *peekBuffer) Free() {}
 
 type nextMcacheBuffer struct {
 	remote.ByteBuffer
@@ -246,7 +243,7 @@ func (sd *skipDecoder) skipElem(typeId thrift.TType) (err error) {
 			return
 		}
 	default:
-		return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("Unknown data type %d", typeId))
+		return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("unknown data type %d", typeId))
 	}
 	return nil
 }
