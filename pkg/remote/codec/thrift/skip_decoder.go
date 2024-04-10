@@ -18,6 +18,7 @@ package thrift
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/bytedance/gopkg/lang/mcache"
 
@@ -39,6 +40,20 @@ const (
 	peekBufferType       bufferType = 2
 	nextMcacheBufferType bufferType = 3
 )
+
+var chosenBufferType = peekBufferType
+
+func init() {
+	typ := os.Getenv("SKIP_DECODER_BUFFER_TYPE")
+	switch typ {
+	case "nextCopy":
+		chosenBufferType = nextCopyBufferType
+	case "peek":
+		chosenBufferType = peekBufferType
+	case "mcache":
+		chosenBufferType = nextMcacheBufferType
+	}
+}
 
 type skipBuffer interface {
 	remote.ByteBuffer
@@ -150,8 +165,8 @@ type skipDecoder struct {
 	sb    skipBuffer
 }
 
-func newSkipDecoder(tprot *BinaryProtocol, bufType bufferType) *skipDecoder {
-	sb := newSkipBuffer(tprot.trans, bufType)
+func newSkipDecoder(tprot *BinaryProtocol) *skipDecoder {
+	sb := newSkipBuffer(tprot.trans, chosenBufferType)
 	return &skipDecoder{
 		tprot: NewBinaryProtocol(sb),
 		sb:    sb,
