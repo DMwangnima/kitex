@@ -17,6 +17,7 @@
 package thrift
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -173,6 +174,10 @@ func newSkipDecoder(tprot *BinaryProtocol) *skipDecoder {
 	}
 }
 
+func (sd *skipDecoder) SkipStruct() error {
+	return sd.skip(thrift.STRUCT, thrift.DEFAULT_RECURSION_DEPTH)
+}
+
 func (sd *skipDecoder) skipString() error {
 	size, err := sd.tprot.ReadI32()
 	if err != nil {
@@ -185,40 +190,44 @@ func (sd *skipDecoder) skipString() error {
 	return err
 }
 
-func (sd *skipDecoder) skipMap() (err error) {
+func (sd *skipDecoder) skipMap(maxDepth int) error {
 	keyTypeId, valTypeId, size, err := sd.tprot.ReadMapBegin()
 	if err != nil {
 		return err
 	}
 	for i := 0; i < size; i++ {
-		if err = sd.skipElem(keyTypeId); err != nil {
+		if err = sd.skip(keyTypeId, maxDepth); err != nil {
 			return err
 		}
-		if err = sd.skipElem(valTypeId); err != nil {
+		if err = sd.skip(valTypeId, maxDepth); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (sd *skipDecoder) skipList() (err error) {
+func (sd *skipDecoder) skipList(maxDepth int) error {
 	elemTypeId, size, err := sd.tprot.ReadListBegin()
 	if err != nil {
 		return err
 	}
 	for i := 0; i < size; i++ {
-		if err = sd.skipElem(elemTypeId); err != nil {
+		if err = sd.skip(elemTypeId, maxDepth); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (sd *skipDecoder) skipSet() (err error) {
-	return sd.skipList()
+func (sd *skipDecoder) skipSet(maxDepth int) error {
+	return sd.skipList(maxDepth)
 }
 
-func (sd *skipDecoder) skipElem(typeId thrift.TType) (err error) {
+func (sd *skipDecoder) skip(typeId thrift.TType, maxDepth int) (err error) {
+	if maxDepth <= 0 {
+		return thrift.NewTProtocolExceptionWithType(thrift.DEPTH_LIMIT, errors.New("depth limit exceeded"))
+	}
+
 	switch typeId {
 	case thrift.BOOL, thrift.BYTE:
 		if _, err = sd.tprot.next(1); err != nil {
@@ -241,20 +250,19 @@ func (sd *skipDecoder) skipElem(typeId thrift.TType) (err error) {
 			return
 		}
 	case thrift.STRUCT:
-		// todo(DMwangnima): limit the skip depth
-		if err = sd.skipStruct(); err != nil {
+		if err = sd.skipStruct(maxDepth - 1); err != nil {
 			return
 		}
 	case thrift.MAP:
-		if err = sd.skipMap(); err != nil {
+		if err = sd.skipMap(maxDepth - 1); err != nil {
 			return
 		}
 	case thrift.SET:
-		if err = sd.skipSet(); err != nil {
+		if err = sd.skipSet(maxDepth - 1); err != nil {
 			return
 		}
 	case thrift.LIST:
-		if err = sd.skipList(); err != nil {
+		if err = sd.skipList(maxDepth - 1); err != nil {
 			return
 		}
 	default:
@@ -263,7 +271,7 @@ func (sd *skipDecoder) skipElem(typeId thrift.TType) (err error) {
 	return nil
 }
 
-func (sd *skipDecoder) skipStruct() (err error) {
+func (sd *skipDecoder) skipStruct(maxDepth int) (err error) {
 	var fieldTypeId thrift.TType
 
 	for {
@@ -274,13 +282,13 @@ func (sd *skipDecoder) skipStruct() (err error) {
 		if fieldTypeId == thrift.STOP {
 			return err
 		}
-		if err = sd.skipElem(fieldTypeId); err != nil {
+		if err = sd.skip(fieldTypeId, maxDepth); err != nil {
 			return err
 		}
 	}
 }
 
-func (sd *skipDecoder) buffer() ([]byte, error) {
+func (sd *skipDecoder) Buffer() ([]byte, error) {
 	return sd.sb.Buffer()
 }
 

@@ -161,10 +161,10 @@ func (c thriftCodec) fastUnmarshal(tProt *BinaryProtocol, data interface{}, data
 	}
 	sd := newSkipDecoder(tProt)
 	defer sd.Recycle()
-	if err := sd.skipStruct(); err != nil {
+	if err := sd.SkipStruct(); err != nil {
 		return remote.NewTransError(remote.ProtocolError, err)
 	}
-	buf, err := sd.buffer()
+	buf, err := sd.Buffer()
 	if err != nil {
 		return remote.NewTransError(remote.ProtocolError, err)
 	}
@@ -208,10 +208,10 @@ func (c thriftCodec) hyperUnmarshal(tProt *BinaryProtocol, data interface{}, dat
 	}
 	sd := newSkipDecoder(tProt)
 	defer sd.Recycle()
-	if err := sd.skipStruct(); err != nil {
+	if err := sd.SkipStruct(); err != nil {
 		return remote.NewTransError(remote.ProtocolError, err)
 	}
-	buf, err := sd.buffer()
+	buf, err := sd.Buffer()
 	if err != nil {
 		return remote.NewTransError(remote.ProtocolError, err)
 	}
