@@ -99,7 +99,7 @@ func (b *peekBuffer) Next(n int) ([]byte, error) {
 }
 
 func (b *peekBuffer) Buffer() ([]byte, error) {
-	return b.ByteBuffer.Peek(b.readNum)
+	return b.ByteBuffer.Next(b.readNum)
 }
 
 func (b *peekBuffer) Free() {}
