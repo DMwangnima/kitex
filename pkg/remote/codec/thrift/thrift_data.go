@@ -19,6 +19,8 @@ package thrift
 import (
 	"context"
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/klog"
+	"github.com/cloudwego/kitex/pkg/rpcinfo"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/bytedance/gopkg/lang/mcache"
@@ -130,7 +132,7 @@ func UnmarshalThriftData(ctx context.Context, codec remote.PayloadCodec, method 
 		c = defaultCodec
 	}
 	tProt := NewBinaryProtocol(remote.NewReaderBuffer(buf))
-	err := c.unmarshalThriftData(ctx, tProt, method, data, len(buf))
+	err := c.unmarshalThriftData(ctx, tProt, method, data, len(buf), nil)
 	if err == nil {
 		tProt.Recycle()
 	}
@@ -175,14 +177,25 @@ func (c thriftCodec) fastUnmarshal(tProt *BinaryProtocol, data interface{}, data
 
 // unmarshalThriftData only decodes the data (after methodName, msgType and seqId)
 // method is only used for generic calls
-func (c thriftCodec) unmarshalThriftData(ctx context.Context, tProt *BinaryProtocol, method string, data interface{}, dataLen int) error {
-	// decode with hyper unmarshal
+func (c thriftCodec) unmarshalThriftData(ctx context.Context, tProt *BinaryProtocol, method string, data interface{}, dataLen int, ri rpcinfo.RPCInfo) error {
 	if c.hyperMessageUnmarshalEnabled() && c.hyperMessageUnmarshalAvailable(data, dataLen) {
+		if dataLen < 0 && ri != nil {
+			klog.Warnf("hyperUnmarshal dataLen is wrong. FromService: %s, ToService: %s, method: %s, dataLen: %d, CodecType: %d", ri.From().ServiceName(), ri.To().ServiceName(), method, dataLen, c.CodecType)
+		}
+		if (c.CodecType&EnableSkipDecoder != 0) && ri != nil {
+			klog.Warnf("hyperUnmarshal CodecType is wrong. FromService: %s, ToService: %s, method: %s, dataLen: %d, CodecType: %d", ri.From().ServiceName(), ri.To().ServiceName(), method, dataLen, c.CodecType)
+		}
 		return c.hyperUnmarshal(tProt, data, dataLen)
 	}
 
 	// decode with FastRead
 	if c.fastMessageUnmarshalEnabled() && c.fastMessageUnmarshalAvailable(data, dataLen) {
+		if dataLen < 0 && ri != nil {
+			klog.Warnf("fastUnmarshal dataLen is wrong. FromService: %s, ToService: %s, method: %s, dataLen: %d, CodecType: %d", ri.From().ServiceName(), ri.To().ServiceName(), method, dataLen, c.CodecType)
+		}
+		if (c.CodecType&EnableSkipDecoder != 0) && ri != nil {
+			klog.Warnf("fastUnmarshal CodecType is wrong. FromService: %s, ToService: %s, method: %s, dataLen: %d, CodecType: %d", ri.From().ServiceName(), ri.To().ServiceName(), method, dataLen, c.CodecType)
+		}
 		return c.fastUnmarshal(tProt, data, dataLen)
 	}
 
