@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cloudwego/kitex/pkg/klog"
+	"github.com/cloudwego/kitex/pkg/rpcinfo"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/bytedance/gopkg/lang/mcache"
@@ -131,7 +132,7 @@ func UnmarshalThriftData(ctx context.Context, codec remote.PayloadCodec, method 
 		c = defaultCodec
 	}
 	tProt := NewBinaryProtocol(remote.NewReaderBuffer(buf))
-	err := c.unmarshalThriftData(ctx, tProt, method, data, len(buf))
+	err := c.unmarshalThriftData(ctx, tProt, method, data, len(buf), nil)
 	if err == nil {
 		tProt.Recycle()
 	}
@@ -151,8 +152,8 @@ func (c thriftCodec) fastMessageUnmarshalAvailable(data interface{}, payloadLen 
 }
 
 func (c thriftCodec) fastUnmarshal(tProt *BinaryProtocol, data interface{}, dataLen int) error {
-	klog.Warnf("hyperUnmarshal dataLen: %d", dataLen)
-	klog.Warnf("hyperUnmarshal codec type: %d", c.CodecType)
+	klog.Warnf("fastUnmarshal dataLen: %d", dataLen)
+	klog.Warnf("fastUnmarshal codec type: %d", c.CodecType)
 	msg := data.(ThriftMsgFastCodec)
 	if dataLen > 0 {
 		buf, err := tProt.next(dataLen)
@@ -178,14 +179,26 @@ func (c thriftCodec) fastUnmarshal(tProt *BinaryProtocol, data interface{}, data
 
 // unmarshalThriftData only decodes the data (after methodName, msgType and seqId)
 // method is only used for generic calls
-func (c thriftCodec) unmarshalThriftData(ctx context.Context, tProt *BinaryProtocol, method string, data interface{}, dataLen int) error {
+func (c thriftCodec) unmarshalThriftData(ctx context.Context, tProt *BinaryProtocol, method string, data interface{}, dataLen int, ri rpcinfo.RPCInfo) error {
 	// decode with hyper unmarshal
 	if c.hyperMessageUnmarshalEnabled() && c.hyperMessageUnmarshalAvailable(data, dataLen) {
+		if dataLen < 0 {
+			klog.Warnf("hyperUnmarshal dataLen is wrong. FromService: %s, ToService: %s, method: %s, dataLen: %d, CodecType: %d", ri.From().ServiceName(), ri.To().ServiceName(), method, dataLen, c.CodecType)
+		}
+		if c.CodecType&EnableSkipDecoder != 0 {
+			klog.Warnf("hyperUnmarshal CodecType is wrong. FromService: %s, ToService: %s, method: %s, dataLen: %d, CodecType: %d", ri.From().ServiceName(), ri.To().ServiceName(), method, dataLen, c.CodecType)
+		}
 		return c.hyperUnmarshal(tProt, data, dataLen)
 	}
 
 	// decode with FastRead
 	if c.fastMessageUnmarshalEnabled() && c.fastMessageUnmarshalAvailable(data, dataLen) {
+		if dataLen < 0 {
+			klog.Warnf("fastUnmarshal dataLen is wrong. FromService: %s, ToService: %s, method: %s, dataLen: %d, CodecType: %d", ri.From().ServiceName(), ri.To().ServiceName(), method, dataLen, c.CodecType)
+		}
+		if c.CodecType&EnableSkipDecoder != 0 {
+			klog.Warnf("fastUnmarshal CodecType is wrong. FromService: %s, ToService: %s, method: %s, dataLen: %d, CodecType: %d", ri.From().ServiceName(), ri.To().ServiceName(), method, dataLen, c.CodecType)
+		}
 		return c.fastUnmarshal(tProt, data, dataLen)
 	}
 
@@ -205,6 +218,7 @@ func (c thriftCodec) unmarshalThriftData(ctx context.Context, tProt *BinaryProto
 func (c thriftCodec) hyperUnmarshal(tProt *BinaryProtocol, data interface{}, dataLen int) error {
 	klog.Warnf("hyperUnmarshal dataLen: %d", dataLen)
 	klog.Warnf("hyperUnmarshal codec type: %d", c.CodecType)
+	klog.Warnf("")
 	if dataLen > 0 {
 		buf, err := tProt.next(dataLen - bthrift.Binary.MessageEndLength())
 		if err != nil {

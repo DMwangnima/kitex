@@ -199,7 +199,7 @@ func (c thriftCodec) Unmarshal(ctx context.Context, message remote.Message, in r
 
 	ri := message.RPCInfo()
 	rpcinfo.Record(ctx, ri, stats.WaitReadStart, nil)
-	err = c.unmarshalThriftData(ctx, tProt, methodName, data, dataLen)
+	err = c.unmarshalThriftData(ctx, tProt, methodName, data, dataLen, ri)
 	rpcinfo.Record(ctx, ri, stats.WaitReadFinish, err)
 	if err != nil {
 		return err
