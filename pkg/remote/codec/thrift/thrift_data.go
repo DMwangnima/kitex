@@ -19,6 +19,7 @@ package thrift
 import (
 	"context"
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/klog"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/bytedance/gopkg/lang/mcache"
@@ -200,6 +201,8 @@ func (c thriftCodec) unmarshalThriftData(ctx context.Context, tProt *BinaryProto
 }
 
 func (c thriftCodec) hyperUnmarshal(tProt *BinaryProtocol, data interface{}, dataLen int) error {
+	klog.Warnf("hyperUnmarshal dataLen: %d", dataLen)
+	klog.Warnf("hyperUnmarshal codec type: %d", c.CodecType)
 	if dataLen > 0 {
 		buf, err := tProt.next(dataLen - bthrift.Binary.MessageEndLength())
 		if err != nil {
