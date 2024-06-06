@@ -151,6 +151,8 @@ func (c thriftCodec) fastMessageUnmarshalAvailable(data interface{}, payloadLen 
 }
 
 func (c thriftCodec) fastUnmarshal(tProt *BinaryProtocol, data interface{}, dataLen int) error {
+	klog.Warnf("hyperUnmarshal dataLen: %d", dataLen)
+	klog.Warnf("hyperUnmarshal codec type: %d", c.CodecType)
 	msg := data.(ThriftMsgFastCodec)
 	if dataLen > 0 {
 		buf, err := tProt.next(dataLen)
