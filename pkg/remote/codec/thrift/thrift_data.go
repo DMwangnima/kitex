@@ -19,6 +19,7 @@ package thrift
 import (
 	"context"
 	"fmt"
+	"github.com/cloudwego/kitex/pkg/klog"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/bytedance/gopkg/lang/mcache"
@@ -178,11 +179,17 @@ func (c thriftCodec) fastUnmarshal(tProt *BinaryProtocol, data interface{}, data
 func (c thriftCodec) unmarshalThriftData(ctx context.Context, tProt *BinaryProtocol, method string, data interface{}, dataLen int) error {
 	// decode with hyper unmarshal
 	if c.hyperMessageUnmarshalEnabled() && c.hyperMessageUnmarshalAvailable(data, dataLen) {
+		if dataLen < 0 {
+			klog.Warnf("hyperUnmarshal using SkipDecoder: dataLen: %d, method: %s", dataLen, method)
+		}
 		return c.hyperUnmarshal(tProt, data, dataLen)
 	}
 
 	// decode with FastRead
 	if c.fastMessageUnmarshalEnabled() && c.fastMessageUnmarshalAvailable(data, dataLen) {
+		if dataLen < 0 {
+			klog.Warnf("fastUnmarshal using SkipDecoder: dataLen: %d, method: %s", dataLen, method)
+		}
 		return c.fastUnmarshal(tProt, data, dataLen)
 	}
 
