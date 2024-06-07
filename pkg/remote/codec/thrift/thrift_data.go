@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cloudwego/kitex/pkg/klog"
+	"github.com/cloudwego/kitex/pkg/rpcinfo"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/bytedance/gopkg/lang/mcache"
@@ -131,7 +132,7 @@ func UnmarshalThriftData(ctx context.Context, codec remote.PayloadCodec, method 
 		c = defaultCodec
 	}
 	tProt := NewBinaryProtocol(remote.NewReaderBuffer(buf))
-	err := c.unmarshalThriftData(ctx, tProt, method, data, len(buf))
+	err := c.unmarshalThriftData(ctx, tProt, method, data, len(buf), nil)
 	if err == nil {
 		tProt.Recycle()
 	}
@@ -176,21 +177,27 @@ func (c thriftCodec) fastUnmarshal(tProt *BinaryProtocol, data interface{}, data
 
 // unmarshalThriftData only decodes the data (after methodName, msgType and seqId)
 // method is only used for generic calls
-func (c thriftCodec) unmarshalThriftData(ctx context.Context, tProt *BinaryProtocol, method string, data interface{}, dataLen int) error {
+func (c thriftCodec) unmarshalThriftData(ctx context.Context, tProt *BinaryProtocol, method string, data interface{}, dataLen int, info rpcinfo.RPCInfo) error {
 	// decode with hyper unmarshal
 	if c.hyperMessageUnmarshalEnabled() && c.hyperMessageUnmarshalAvailable(data, dataLen) {
-		if dataLen < 0 {
-			klog.Warnf("hyperUnmarshal using SkipDecoder: dataLen: %d, method: %s", dataLen, method)
+		err := c.hyperUnmarshal(tProt, data, dataLen)
+		if dataLen < 0 && info != nil && err != nil {
+			klog.Warnf("hyperUnmarshal using SkipDecoder: dataLen: %d, method: %s, fromService: %s, fromMethod: %s, toSerivce: %s, toMethod: %s", dataLen, method, info.From().ServiceName(), info.From().Method(), info.To().ServiceName(), info.To().Method())
+			klog.Warnf("hyperUnmarshal using SkipDecoder: data: %+v", data)
+			klog.Warnf("hyperUnmarshal using SkipDecoder: rpcinfo: %+v", info)
 		}
-		return c.hyperUnmarshal(tProt, data, dataLen)
+		return err
 	}
 
 	// decode with FastRead
 	if c.fastMessageUnmarshalEnabled() && c.fastMessageUnmarshalAvailable(data, dataLen) {
-		if dataLen < 0 {
-			klog.Warnf("fastUnmarshal using SkipDecoder: dataLen: %d, method: %s", dataLen, method)
+		err := c.fastUnmarshal(tProt, data, dataLen)
+		if dataLen < 0 && info != nil && err != nil {
+			klog.Warnf("fastUnmarshal using SkipDecoder: dataLen: %d, method: %s, fromService: %s, fromMethod: %s, toSerivce: %s, toMethod: %s", dataLen, method, info.From().ServiceName(), info.From().Method(), info.To().ServiceName(), info.To().Method())
+			klog.Warnf("fastUnmarshal using SkipDecoder: data: %+v", data)
+			klog.Warnf("fastUnmarshal using SkipDecoder: rpcinfo: %+v", info)
 		}
-		return c.fastUnmarshal(tProt, data, dataLen)
+		return err
 	}
 
 	if err := verifyUnmarshalBasicThriftDataType(data); err != nil {
