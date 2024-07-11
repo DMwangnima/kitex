@@ -451,6 +451,10 @@ func (t *ttheaderStream) closeSend(err error) error {
 		return nil
 	}
 
+	// server side has sent trailers, then there is no need for client to send trailer
+	if t.rpcRole == remote.Client && t.recvState.isClosed() {
+		return nil
+	}
 	sendErr := t.sendTrailerFrame(err)
 	t.waitSendLoopClose() // make sure all frames are sent before the connection is reused
 	if t.rpcRole == remote.Server {
