@@ -115,7 +115,6 @@ func (t *svrTransHandler) Read(ctx context.Context, conn net.Conn, msg remote.Me
 	return ctx, err
 }
 
-// 只 return write err
 func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) error {
 	svrTrans := ctx.Value(ctxKeySvrTransport).(*SvrTrans)
 	tr := svrTrans.tr

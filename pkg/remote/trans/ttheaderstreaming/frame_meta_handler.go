@@ -61,7 +61,6 @@ func (c *clientTTHeaderFrameHandler) ServerReadHeader(ctx context.Context, messa
 func (c *clientTTHeaderFrameHandler) WriteHeader(ctx context.Context, msg remote.Message) error {
 	ri := msg.RPCInfo()
 
-	// 为什么创建一个新的？
 	intInfo := map[uint16]string{
 		transmeta.ToMethod: ri.Invocation().MethodName(),
 	}
@@ -72,7 +71,6 @@ func (c *clientTTHeaderFrameHandler) WriteHeader(ctx context.Context, msg remote
 	}
 	msg.TransInfo().PutTransIntInfo(intInfo)
 
-	// 为什么使用已有的？
 	strInfo := msg.TransInfo().TransStrInfo()
 	metainfo.SaveMetaInfoToMap(ctx, strInfo)
 	strInfo[transmeta.HeaderIDLServiceName] = ri.Invocation().ServiceName()
