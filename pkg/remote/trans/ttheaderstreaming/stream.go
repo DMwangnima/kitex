@@ -91,6 +91,8 @@ type ttheaderStream struct {
 	sendQueue           chan sendRequest
 	sendLoopCloseSignal chan struct{}
 
+	dirtyFrameCloseSignal chan struct{}
+
 	grpcMetadata grpcMetadata
 	frameHandler remote.FrameMetaHandler
 }
@@ -111,8 +113,9 @@ func newTTHeaderStream(
 		ext:          ext,
 		frameHandler: handler,
 
-		sendQueue:           make(chan sendRequest, sendQueueSize),
-		sendLoopCloseSignal: make(chan struct{}),
+		sendQueue:             make(chan sendRequest, sendQueueSize),
+		sendLoopCloseSignal:   make(chan struct{}),
+		dirtyFrameCloseSignal: make(chan struct{}),
 	}
 	gofunc.GoFunc(ctx, func() {
 		// server will replace st.ctx, so sendLoop should not read st.ctx directly, to avoid concurrent read/write
@@ -498,6 +501,8 @@ func (t *ttheaderStream) sendLoop(ctx context.Context) {
 			message = req.message
 		case <-ctx.Done():
 			message = t.newTrailerFrame(ctx.Err())
+		case <-t.dirtyFrameCloseSignal:
+			return
 		}
 		frameType := codec.MessageFrameType(message)
 		err := t.writeMessage(message) // message is recycled
@@ -554,6 +559,7 @@ func (t *ttheaderStream) serverReadHeaderFrame(opt *remote.ServerOption) (nCtx c
 		return nil, err
 	}
 	if codec.MessageFrameType(clientHeader) != codec.FrameTypeHeader {
+		close(t.dirtyFrameCloseSignal)
 		return nil, ErrDirtyFrame
 	}
 
