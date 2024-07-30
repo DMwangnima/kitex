@@ -63,6 +63,8 @@ func (t *ttheaderStreamingClientTransHandler) newHeaderMessage(
 	ri := rpcinfo.GetRPCInfo(ctx)
 	message = remote.NewMessage(nil, svcInfo, ri, remote.Stream, remote.Client)
 	message.SetProtocolInfo(remote.NewProtocolInfo(transport.TTHeader, svcInfo.PayloadCodec))
+	// todo(DMwangnina): verify this tag
+	message.Tags()[codec.HeaderFlagsKey] = codec.HeaderFlagsStreaming
 	message.TransInfo().TransIntInfo()[transmeta.FrameType] = codec.FrameTypeHeader
 
 	if err = t.frameMetaHandler.WriteHeader(ctx, message); err != nil {
