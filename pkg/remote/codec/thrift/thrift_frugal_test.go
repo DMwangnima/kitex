@@ -123,13 +123,13 @@ func TestFrugalCodec(t *testing.T) {
 				ctx := context.Background()
 				codec := &thriftCodec{FrugalRead | FrugalWrite}
 
-				testFrugalDataConversion(t, ctx, codec, transport.TTHeader)
+				testFrugalDataConversion(t, ctx, codec)
 			})
 			t.Run("fallback to frugal and data has tag", func(t *testing.T) {
 				ctx := context.Background()
 				codec := NewThriftCodec()
 
-				testFrugalDataConversion(t, ctx, codec, transport.TTHeader)
+				testFrugalDataConversion(t, ctx, codec)
 			})
 			t.Run("configure BasicCodec to disable frugal fallback", func(t *testing.T) {
 				ctx := context.Background()
@@ -142,21 +142,15 @@ func TestFrugalCodec(t *testing.T) {
 				out.Flush()
 				test.Assert(t, err != nil)
 			})
-			t.Run("configure frugal and SkipDecoder for Buffer Protocol", func(t *testing.T) {
-				ctx := context.Background()
-				codec := NewThriftCodecWithConfig(FrugalRead | FrugalWrite | EnableSkipDecoder)
-
-				testFrugalDataConversion(t, ctx, codec, transport.PurePayload)
-			})
 		})
 	}
 }
 
-func testFrugalDataConversion(t *testing.T, ctx context.Context, codec remote.PayloadCodec, protocol transport.Protocol) {
+func testFrugalDataConversion(t *testing.T, ctx context.Context, codec remote.PayloadCodec) {
 	for _, tb := range transportBuffers {
 		t.Run(tb.Name, func(t *testing.T) {
 			// encode client side
-			sendMsg := initFrugalTagSendMsg(protocol)
+			sendMsg := initFrugalTagSendMsg(transport.TTHeader)
 			buf := tb.NewBuffer()
 			err := codec.Marshal(ctx, sendMsg, buf)
 			test.Assert(t, err == nil, err)
@@ -164,9 +158,7 @@ func testFrugalDataConversion(t *testing.T, ctx context.Context, codec remote.Pa
 
 			// decode server side
 			recvMsg := initFrugalTagRecvMsg()
-			if protocol != transport.PurePayload {
-				recvMsg.SetPayloadLen(buf.ReadableLen())
-			}
+			recvMsg.SetPayloadLen(buf.ReadableLen())
 			test.Assert(t, err == nil, err)
 			err = codec.Unmarshal(ctx, recvMsg, buf)
 			test.Assert(t, err == nil, err)

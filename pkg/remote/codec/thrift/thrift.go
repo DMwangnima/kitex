@@ -41,11 +41,13 @@ const (
 	FastWrite CodecType = 0b0001
 	FastRead  CodecType = 0b0010
 
-	FastReadWrite               = FastRead | FastWrite
-	EnableSkipDecoder CodecType = 0b10000
+	FastReadWrite = FastRead | FastWrite
 )
 
 var (
+	_ remote.PayloadCodec = (*thriftCodec)(nil)
+	_ remote.StructCodec  = (*thriftCodec)(nil)
+
 	defaultCodec = NewThriftCodec().(*thriftCodec)
 
 	errEncodeMismatchMsgType = remote.NewTransErrorWithMsg(remote.InvalidProtocol,
@@ -65,7 +67,7 @@ func IsThriftCodec(c remote.PayloadCodec) bool {
 	return ok
 }
 
-// NewThriftFrugalCodec creates the thrift binary codec powered by frugal.
+// NewThriftCodecWithConfig creates the thrift binary codec powered by frugal.
 // Eg: xxxservice.NewServer(handler, server.WithPayloadCodec(thrift.NewThriftCodecWithConfig(thrift.FastWrite | thrift.FastRead)))
 func NewThriftCodecWithConfig(c CodecType) remote.PayloadCodec {
 	return &thriftCodec{c}
@@ -197,10 +199,6 @@ func (c thriftCodec) Unmarshal(ctx context.Context, message remote.Message, in r
 	data := message.Data()
 	msgBeginLen := bthrift.Binary.MessageBeginLength(methodName, msgType, seqID)
 	dataLen := message.PayloadLen() - msgBeginLen - bthrift.Binary.MessageEndLength()
-	// For Buffer Protocol, dataLen would be negative. Set it to zero so as not to confuse
-	if dataLen < 0 {
-		dataLen = 0
-	}
 
 	ri := message.RPCInfo()
 	rpcinfo.Record(ctx, ri, stats.WaitReadStart, nil)

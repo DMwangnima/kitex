@@ -26,7 +26,11 @@ import (
 
 	"github.com/cloudwego/kitex/internal/test"
 	"github.com/cloudwego/kitex/pkg/remote"
+<<<<<<< HEAD
 	internalnetpoll "github.com/cloudwego/kitex/pkg/remote/trans/netpoll"
+=======
+	"github.com/cloudwego/kitex/pkg/remote/trans/netpoll/bytebuf"
+>>>>>>> 9fa57c9 (feat: support ttheader streaming)
 )
 
 // TestWriteMessageEnd test binary WriteMessageEnd function
@@ -319,7 +323,11 @@ func TestWriteStringNocopy(t *testing.T) {
 	buf := make([]byte, 128)
 	exceptWs := "0000000c6d657373616765426567696e"
 	exceptSize := 16
+<<<<<<< HEAD
 	out := internalnetpoll.NewReaderWriterByteBuffer(netpoll.NewLinkBuffer(0))
+=======
+	out := bytebuf.NewReaderWriterByteBuffer(netpoll.NewLinkBuffer(0))
+>>>>>>> 9fa57c9 (feat: support ttheader streaming)
 	nw, _ := out.(remote.NocopyWrite)
 	wn := Binary.WriteStringNocopy(buf, nw, "messageBegin")
 	ws := fmt.Sprintf("%x", buf[:wn])
@@ -332,7 +340,11 @@ func TestWriteBinaryNocopy(t *testing.T) {
 	buf := make([]byte, 128)
 	exceptWs := "0000000c6d657373616765426567696e"
 	exceptSize := 16
+<<<<<<< HEAD
 	out := internalnetpoll.NewReaderWriterByteBuffer(netpoll.NewLinkBuffer(0))
+=======
+	out := bytebuf.NewReaderWriterByteBuffer(netpoll.NewLinkBuffer(0))
+>>>>>>> 9fa57c9 (feat: support ttheader streaming)
 	nw, _ := out.(remote.NocopyWrite)
 	wn := Binary.WriteBinaryNocopy(buf, nw, []byte("messageBegin"))
 	ws := fmt.Sprintf("%x", buf[:wn])
