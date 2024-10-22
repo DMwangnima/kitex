@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/kitex/pkg/remote/codec/protobuf/encoding"
+	gerrors "github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/errors"
 
 	"github.com/cloudwego/netpoll"
 	"golang.org/x/net/http2"
@@ -63,11 +64,9 @@ var (
 
 	// errors used for cancelling stream.
 	// the code should be codes.Canceled coz it's NOT returned from remote
-	errConnectionEOF      = status.Err(codes.Canceled, "transport: connection EOF"+triggeredByRemoteServiceSuffix)
-	errMaxStreamsExceeded = status.Err(codes.Canceled, "transport: max streams exceeded"+triggeredByRemoteServiceSuffix)
-	errNotReachable       = status.Err(codes.Canceled, "transport: server not reachable"+triggeredByRemoteServiceSuffix)
-	errMaxAgeClosing      = status.Err(codes.Canceled, "transport: closing server transport due to maximum connection age"+triggeredByRemoteServiceSuffix)
-	errIdleClosing        = status.Err(codes.Canceled, "transport: closing server transport due to idleness"+triggeredByRemoteServiceSuffix)
+	errConnectionEOF      = status.New(codes.Canceled, "transport: connection EOF"+triggeredByRemoteServiceSuffix).WithMappingErr(gerrors.ErrHTTP2Connection).Err()
+	errMaxStreamsExceeded = status.New(codes.Canceled, "transport: max streams exceeded"+triggeredByRemoteServiceSuffix).Err()
+	errNotReachable       = status.New(codes.Canceled, "transport: server not reachable"+triggeredByRemoteServiceSuffix).Err()
 )
 
 func init() {
@@ -242,7 +241,8 @@ func newHTTP2Server(ctx context.Context, conn net.Conn, config *ServerConfig) (_
 
 	defer func() {
 		if err != nil {
-			t.closeWithErr(err)
+			// using other processing style
+			t.closeWithErr(gerrors.ErrEstablishConnection.WithCause(err))
 		}
 	}()
 
@@ -427,14 +427,16 @@ func (t *http2Server) HandleStreams(handle func(*Stream), traceCtx func(context.
 				return
 			}
 			klog.CtxWarnf(t.ctx, "transport: http2Server.HandleStreams failed to read frame: %v", err)
-			t.closeWithErr(status.Errorf(codes.Canceled, "transport: ReadFrame encountered err: %v"+triggeredByRemoteServiceSuffix, err))
+			t.closeWithErr(status.Newf(codes.Canceled, "transport: ReadFrame encountered err: %v"+triggeredByRemoteServiceSuffix, err).
+				WithMappingErr(gerrors.ErrHTTP2Connection).Err())
 			return
 		}
 		switch frame := frame.(type) {
 		case *grpcframe.MetaHeadersFrame:
 			if err := t.operateHeaders(frame, handle, traceCtx); err != nil {
 				klog.CtxErrorf(t.ctx, "transport: http2Server.HandleStreams fatal err: %v", err)
-				t.closeWithErr(err)
+				t.closeWithErr(status.New(codes.Canceled, err.Error()).
+					WithMappingErr(gerrors.ErrOperateHeaders).Err())
 				break
 			}
 		case *grpcframe.DataFrame:
@@ -918,7 +920,8 @@ func (t *http2Server) keepalive() {
 			case <-ageTimer.C:
 				// Close the connection after grace period.
 				klog.Infof("transport: closing server transport due to maximum connection age.")
-				t.closeWithErr(errMaxAgeClosing)
+				t.closeWithErr(status.New(codes.Canceled, "transport: closing server transport due to maximum connection age"+triggeredByRemoteServiceSuffix).
+					WithMappingErr(gerrors.ErrKeepAlive).Err())
 			case <-t.done:
 			}
 			return
@@ -935,7 +938,8 @@ func (t *http2Server) keepalive() {
 			}
 			if outstandingPing && kpTimeoutLeft <= 0 {
 				klog.Infof("transport: closing server transport due to idleness.")
-				t.closeWithErr(errIdleClosing)
+				t.closeWithErr(status.New(codes.Canceled, "transport: closing server transport due to idleness"+triggeredByRemoteServiceSuffix).
+					WithMappingErr(gerrors.ErrKeepAlive).Err())
 				return
 			}
 			if !outstandingPing {

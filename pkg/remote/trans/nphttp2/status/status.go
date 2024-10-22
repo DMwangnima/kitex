@@ -45,10 +45,16 @@ type Iface interface {
 	GRPCStatus() *Status
 }
 
+type withCauser interface {
+	WithCause(error) error
+}
+
 // Status represents an RPC status code, message, and details.  It is immutable
 // and should be created with New, Newf, or FromProto.
 type Status struct {
 	s *spb.Status
+	// kerr is the Kitex custom error that status maps to
+	kerr withCauser
 }
 
 // New returns a Status representing c and msg.
@@ -119,7 +125,11 @@ func (s *Status) Err() error {
 	if s.Code() == codes.OK {
 		return nil
 	}
-	return &Error{e: s.Proto()}
+	err := &Error{e: s.Proto()}
+	if s.kerr != nil {
+		return s.kerr.WithCause(err)
+	}
+	return err
 }
 
 // WithDetails returns a new status with the provided details messages appended to the status.
@@ -156,6 +166,15 @@ func (s *Status) Details() []interface{} {
 		details = append(details, detail)
 	}
 	return details
+}
+
+func (s *Status) WithMappingErr(err error) *Status {
+	kerr, ok := err.(withCauser)
+	if !ok {
+		return s
+	}
+	s.kerr = kerr
+	return s
 }
 
 // Error wraps a pointer of a status proto. It implements error and Status,

@@ -39,6 +39,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/gofunc"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/codes"
+	gerrors "github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/errors"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/grpc/grpcframe"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/grpc/syscall"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/metadata"
@@ -219,12 +220,14 @@ func newHTTP2Client(ctx context.Context, conn net.Conn, opts ConnectOptions,
 	// Send connection preface to server.
 	n, err := t.conn.Write(ClientPreface)
 	if err != nil {
-		err = connectionErrorf(true, err, "transport: failed to write client preface: %v", err)
+		err = status.Newf(codes.Unavailable, "transport: failed to write client preface: %v", err).
+			WithMappingErr(gerrors.ErrEstablishConnection).Err()
 		t.Close(err)
 		return nil, err
 	}
 	if n != ClientPrefaceLen {
-		err = connectionErrorf(true, err, "transport: preface mismatch, wrote %d bytes; want %d", n, ClientPrefaceLen)
+		err = status.Newf(codes.Unavailable, "transport: preface mismatch, wrote %d bytes; want %d", n, ClientPrefaceLen).
+			WithMappingErr(gerrors.ErrEstablishConnection).Err()
 		t.Close(err)
 		return nil, err
 	}
@@ -237,7 +240,8 @@ func newHTTP2Client(ctx context.Context, conn net.Conn, opts ConnectOptions,
 	}
 	err = t.framer.WriteSettings(ss...)
 	if err != nil {
-		err = connectionErrorf(true, err, "transport: failed to write initial settings frame: %v", err)
+		err = status.Newf(codes.Unavailable, "transport: failed to write initial settings frame: %v", err).
+			WithMappingErr(gerrors.ErrEstablishConnection).Err()
 		t.Close(err)
 		return nil, err
 	}
@@ -245,7 +249,8 @@ func newHTTP2Client(ctx context.Context, conn net.Conn, opts ConnectOptions,
 	// Adjust the connection flow control window if needed.
 	if delta := uint32(icwz - defaultWindowSize); delta > 0 {
 		if err := t.framer.WriteWindowUpdate(0, delta); err != nil {
-			err = connectionErrorf(true, err, "transport: failed to write window update: %v", err)
+			err = status.Newf(codes.Unavailable, "transport: failed to write window update: %v", err).
+				WithMappingErr(gerrors.ErrEstablishConnection).Err()
 			t.Close(err)
 			return nil, err
 		}
@@ -657,7 +662,8 @@ func (t *http2Client) GracefulClose() {
 	active := len(t.activeStreams)
 	t.mu.Unlock()
 	if active == 0 {
-		t.Close(connectionErrorf(true, nil, "no active streams left to process while draining"))
+		t.Close(status.New(codes.Unavailable, "no active streams left to process while draining").
+			WithMappingErr(gerrors.ErrNoActiveStream).Err())
 		return
 	}
 	t.controlBuf.put(&incomingGoAway{})
@@ -903,7 +909,8 @@ func (t *http2Client) handleGoAway(f *grpcframe.GoAwayFrame) {
 	id := f.LastStreamID
 	if id > 0 && id%2 != 1 {
 		t.mu.Unlock()
-		t.Close(connectionErrorf(true, nil, "received goaway with non-zero even-numbered numbered stream id: %v", id))
+		t.Close(status.Newf(codes.Unavailable, "received goaway with non-zero even-numbered numbered stream id: %v", id).
+			WithMappingErr(gerrors.ErrHandleGoAway).Err())
 		return
 	}
 	// A client can receive multiple GoAways from the server (see
@@ -921,7 +928,8 @@ func (t *http2Client) handleGoAway(f *grpcframe.GoAwayFrame) {
 		// If there are multiple GoAways the first one should always have an ID greater than the following ones.
 		if id > t.prevGoAwayID {
 			t.mu.Unlock()
-			t.Close(connectionErrorf(true, nil, "received goaway with stream id: %v, which exceeds stream id of previous goaway: %v", id, t.prevGoAwayID))
+			t.Close(status.Newf(codes.Unavailable, "received goaway with stream id: %v, which exceeds stream id of previous goaway: %v", id, t.prevGoAwayID).
+				WithMappingErr(gerrors.ErrHandleGoAway).Err())
 			return
 		}
 	default:
@@ -953,7 +961,8 @@ func (t *http2Client) handleGoAway(f *grpcframe.GoAwayFrame) {
 	active := len(t.activeStreams)
 	t.mu.Unlock()
 	if active == 0 {
-		t.Close(connectionErrorf(true, nil, "received goaway and there are no active streams"))
+		t.Close(status.New(codes.Unavailable, "received goaway and there are no active streams").
+			WithMappingErr(gerrors.ErrNoActiveStream).Err())
 	}
 }
 
@@ -1050,7 +1059,8 @@ func (t *http2Client) reader() {
 	// Check the validity of server preface.
 	frame, err := t.framer.ReadFrame()
 	if err != nil {
-		err = connectionErrorf(true, err, "error reading from server, remoteAddress=%s, error=%v", t.conn.RemoteAddr(), err)
+		err = status.Newf(codes.Unavailable, "error reading from server, remoteAddress=%s, error=%v", t.conn.RemoteAddr(), err).
+			WithMappingErr(gerrors.ErrEstablishConnection).Err()
 		t.Close(err) // this kicks off resetTransport, so must be last before return
 		return
 	}
@@ -1060,7 +1070,8 @@ func (t *http2Client) reader() {
 	}
 	sf, ok := frame.(*grpcframe.SettingsFrame)
 	if !ok {
-		err = connectionErrorf(true, err, "first frame received is not a setting frame")
+		err = status.New(codes.Unavailable, "first frame received is not a setting frame").
+			WithMappingErr(gerrors.ErrEstablishConnection).Err()
 		t.Close(err) // this kicks off resetTransport, so must be last before return
 		return
 	}
@@ -1095,7 +1106,8 @@ func (t *http2Client) reader() {
 				continue
 			} else {
 				// Transport error.
-				err = connectionErrorf(true, err, "error reading from server, remoteAddress=%s, error=%v", t.conn.RemoteAddr(), err)
+				err = status.Newf(codes.Unavailable, "error reading from server, remoteAddress=%s, error=%v", t.conn.RemoteAddr(), err).
+					WithMappingErr(gerrors.ErrHTTP2Connection).Err()
 				t.Close(err)
 				return
 			}
@@ -1154,7 +1166,8 @@ func (t *http2Client) keepalive() {
 				continue
 			}
 			if outstandingPing && timeoutLeft <= 0 {
-				t.Close(connectionErrorf(true, nil, "keepalive ping failed to receive ACK within timeout"))
+				t.Close(status.New(codes.Unavailable, "keepalive ping failed to receive ACK within timeout").
+					WithMappingErr(gerrors.ErrKeepAlive).Err())
 				return
 			}
 			t.mu.Lock()
