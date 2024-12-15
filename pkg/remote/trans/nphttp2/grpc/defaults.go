@@ -50,7 +50,8 @@ const (
 	// defaultWriteQuota is the default value for number of data
 	// bytes that each stream can schedule before some of it being
 	// flushed out.
-	defaultWriteQuota              = 64 * 1024
+	//defaultWriteQuota              = 64 * 1024
+	defaultWriteQuota              = math.MaxInt32
 	defaultClientMaxHeaderListSize = uint32(16 << 20)
 	defaultServerMaxHeaderListSize = uint32(16 << 20)
 	// http2IOBufSize specifies the buffer size for sending frames.
