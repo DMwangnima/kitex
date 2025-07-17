@@ -19,25 +19,33 @@ package ttstream
 import (
 	"errors"
 	"time"
+
+	"github.com/cloudwego/kitex/pkg/streaming"
 )
 
 func newShortConnTransPool() transPool {
 	return &shortConnTransPool{}
 }
 
-type shortConnTransPool struct{}
+type shortConnTransPool struct {
+	cleanupConfig streaming.StreamCleanupConfig
+}
 
-func (p *shortConnTransPool) Get(network, addr string) (*transport, error) {
+func (p *shortConnTransPool) Get(network, addr string) (*clientTransport, error) {
 	// create new connection
 	conn, err := dialer.DialConnection(network, addr, time.Second)
 	if err != nil {
 		return nil, err
 	}
 	// create new transport
-	trans := newTransport(clientTransport, conn, p)
+	trans := newClientTransportWithStreamCleanup(conn, p, p.cleanupConfig)
 	return trans, nil
 }
 
-func (p *shortConnTransPool) Put(trans *transport) {
-	_ = trans.Close(errTransport.WithCause(errors.New("short connection closed")))
+func (p *shortConnTransPool) Put(trans *clientTransport) {
+	_ = trans.Close(errTransport.withCause(errors.New("short connection closed")))
+}
+
+func (p *shortConnTransPool) ConfigStreamCleanup(cfg streaming.StreamCleanupConfig) {
+	p.cleanupConfig = cfg
 }

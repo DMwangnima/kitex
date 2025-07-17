@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream/container"
+	"github.com/cloudwego/kitex/pkg/streaming"
 )
 
 var DefaultLongConnConfig = LongConnConfig{
@@ -37,21 +38,23 @@ func newLongConnTransPool(config LongConnConfig) transPool {
 		tp.config.MaxIdleTimeout = config.MaxIdleTimeout
 	}
 	tp.transPool = container.NewObjectPool(tp.config.MaxIdleTimeout)
+	tp.cleanupConfig = defaultStreamCleanupConfig
 	return tp
 }
 
 type longConnTransPool struct {
-	transPool *container.ObjectPool
-	config    LongConnConfig
+	transPool     *container.ObjectPool
+	config        LongConnConfig
+	cleanupConfig streaming.StreamCleanupConfig
 }
 
-func (c *longConnTransPool) Get(network, addr string) (trans *transport, err error) {
+func (c *longConnTransPool) Get(network, addr string) (trans *clientTransport, err error) {
 	for {
 		o := c.transPool.Pop(addr)
 		if o == nil {
 			break
 		}
-		trans = o.(*transport)
+		trans = o.(*clientTransport)
 		if trans.IsActive() {
 			return trans, nil
 		}
@@ -62,12 +65,16 @@ func (c *longConnTransPool) Get(network, addr string) (trans *transport, err err
 	if err != nil {
 		return nil, err
 	}
-	trans = newTransport(clientTransport, conn, c)
+	trans = newClientTransportWithStreamCleanup(conn, c, c.cleanupConfig)
 	// create new transport
 	return trans, nil
 }
 
-func (c *longConnTransPool) Put(trans *transport) {
+func (c *longConnTransPool) Put(trans *clientTransport) {
 	addr := trans.conn.RemoteAddr().String()
 	c.transPool.Push(addr, trans)
+}
+
+func (c *longConnTransPool) ConfigStreamCleanup(cfg streaming.StreamCleanupConfig) {
+	c.cleanupConfig = cfg
 }

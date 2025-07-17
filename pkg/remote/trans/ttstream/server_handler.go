@@ -113,7 +113,7 @@ type onDisConnectSetter interface {
 // OnActive will be called when a connection accepted
 func (t *svrTransHandler) OnActive(ctx context.Context, conn net.Conn) (context.Context, error) {
 	nconn := conn.(netpoll.Connection)
-	trans := newTransport(serverTransport, nconn, nil)
+	trans := newServerTransport(nconn)
 	_ = nconn.(onDisConnectSetter).SetOnDisconnect(func(ctx context.Context, connection netpoll.Connection) {
 		// server only close transport when peer connection closed
 		_ = trans.Close(nil)
@@ -127,7 +127,7 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) (err error)
 	var wg sync.WaitGroup
 	defer func() {
 		wg.Wait()
-		trans, _ := ctx.Value(serverTransCtxKey{}).(*transport)
+		trans, _ := ctx.Value(serverTransCtxKey{}).(*serverTransport)
 		if trans != nil {
 			trans.WaitClosed()
 		}
@@ -137,12 +137,12 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) (err error)
 	}()
 	// connection level goroutine
 	for {
-		trans, _ := ctx.Value(serverTransCtxKey{}).(*transport)
+		trans, _ := ctx.Value(serverTransCtxKey{}).(*serverTransport)
 		if trans == nil {
 			err = fmt.Errorf("server transport is nil")
 			return
 		}
-		var st *stream
+		var st *serverStream
 		// ReadStream will block until a stream coming or conn return error
 		st, err = trans.ReadStream(ctx)
 		if err != nil {
@@ -164,7 +164,7 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) (err error)
 // - create  server stream
 // - process server stream
 // - close   server stream
-func (t *svrTransHandler) OnStream(ctx context.Context, conn net.Conn, st *stream) (err error) {
+func (t *svrTransHandler) OnStream(ctx context.Context, conn net.Conn, st *serverStream) (err error) {
 	ri := t.opt.InitOrResetRPCInfoFunc(nil, conn.RemoteAddr())
 	ctx = rpcinfo.NewCtxWithRPCInfo(ctx, ri)
 	defer func() {
@@ -203,7 +203,6 @@ func (t *svrTransHandler) OnStream(ctx context.Context, conn net.Conn, st *strea
 	}
 	// register metainfo into ctx
 	ctx = metainfo.SetMetaInfoFromMap(ctx, st.header)
-	ss := newServerStream(st)
 
 	// cancel ctx when OnStreamFinish
 	ctx, cancelFunc := ktx.WithCancel(ctx)
@@ -222,20 +221,20 @@ func (t *svrTransHandler) OnStream(ctx context.Context, conn net.Conn, st *strea
 		t.finishTracer(ctx, ri, err, panicErr)
 	}()
 	args := &streaming.Args{
-		ServerStream: ss,
+		ServerStream: st,
 	}
 	if err = t.inkHdlFunc(ctx, args, nil); err != nil {
 		// treat err thrown by invoking handler as the final err, ignore the err returned by OnStreamFinish
-		_, _ = t.OnStreamFinish(ctx, ss, err)
+		_, _ = t.OnStreamFinish(ctx, st, err)
 		return
 	}
 	if bizErr := ri.Invocation().BizStatusErr(); bizErr != nil {
 		// when biz err thrown, treat the err returned by OnStreamFinish as the final err
-		ctx, err = t.OnStreamFinish(ctx, ss, bizErr)
+		ctx, err = t.OnStreamFinish(ctx, st, bizErr)
 		return
 	}
 	// there is no invoking handler err or biz err, treat the err returned by OnStreamFinish as the final err
-	ctx, err = t.OnStreamFinish(ctx, ss, nil)
+	ctx, err = t.OnStreamFinish(ctx, st, nil)
 	return
 }
 
@@ -286,7 +285,7 @@ func (t *svrTransHandler) OnStreamFinish(ctx context.Context, ss streaming.Serve
 			exception = nil
 		case *thrift.ApplicationException:
 			exception = terr
-		case tException:
+		case *Exception:
 			exception = thrift.NewApplicationException(terr.TypeId(), terr.Error())
 		default:
 			exception = thrift.NewApplicationException(remote.InternalError, terr.Error())
