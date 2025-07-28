@@ -18,7 +18,6 @@ package ttstream
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 
 	"github.com/cloudwego/gopkg/protocol/thrift"
@@ -124,20 +123,6 @@ func (s *serverStream) close(exception error) error {
 }
 
 // === serverStream onRead callback
-
-func (s *serverStream) onReadHeaderFrame(fr *Frame) error {
-	if s.header != nil {
-		return errUnexpectedHeader.newBuilder().withSide(serverSide).withCause(fmt.Errorf("stream[%d] already set header", s.sid))
-	}
-	s.header = fr.header
-	select {
-	case s.headerSig <- streamSigActive:
-	default:
-		return errUnexpectedHeader.newBuilder().withSide(serverSide).withCause(fmt.Errorf("stream[%d] already set header", s.sid))
-	}
-	klog.Debugf("stream[%s] read header: %v", s.method, fr.header)
-	return nil
-}
 
 func (s *serverStream) onReadTrailerFrame(fr *Frame) (err error) {
 	var exception error

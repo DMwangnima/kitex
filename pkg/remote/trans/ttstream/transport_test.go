@@ -544,8 +544,6 @@ var bizCancelMatrix = map[string]func(t *testing.T, cliSt *clientStream, srvSt *
 	"ServerStreaming - cancel during normal interaction":        bizCancelServerStreamingCancelDuringNormalInteraction,
 	"ServerStreaming - defer cancel()":                          bizCancelServerStreamingDeferCancel,
 	"BidiStreaming - cancel serial send recv":                   bizCancelBidiStreamingCancelSerialSendRecv,
-	//"BidiStreaming - cancel individual send loop":               bizCancelBidiStreamingCancelIndividual,
-	//"BidiStreaming - defer cancel()":                            bizCancelBidiStreamingDeferCancel,
 }
 
 func bizCancelClientStreamingCancelWithoutSendingAnyReq(t *testing.T, cliSt *clientStream, srvSt *serverStream, cancel context.CancelFunc) {
@@ -804,14 +802,6 @@ func bizCancelBidiStreamingCancelSerialSendRecv(t *testing.T, cliSt *clientStrea
 	}
 
 	wg.Wait()
-}
-
-func bizCancelBidiStreamingCancelIndividual(t *testing.T, cliSt *clientStream, srvSt *serverStream, cancel context.CancelFunc) {
-
-}
-
-func bizCancelBidiStreamingDeferCancel(t *testing.T, cliSt *clientStream, srvSt *serverStream, cancel context.CancelFunc) {
-
 }
 
 func TestBizCancel(t *testing.T) {

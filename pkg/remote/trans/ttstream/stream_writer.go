@@ -16,8 +16,10 @@
 
 package ttstream
 
-var _ streamWriter = (*clientTransport)(nil)
-var _ streamWriter = (*serverTransport)(nil)
+var (
+	_ streamWriter = (*clientTransport)(nil)
+	_ streamWriter = (*serverTransport)(nil)
+)
 
 type streamWriter interface {
 	WriteFrame(f *Frame) error

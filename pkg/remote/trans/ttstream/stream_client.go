@@ -168,7 +168,6 @@ func (s *clientStream) close(exception error, sendRst bool, via string) {
 		s.closeSend(nil)
 	}
 	s.runCloseCallback(exception)
-	return
 }
 
 func (s *clientStream) setMetaFrameHandler(metaHandler MetaFrameHandler) {
