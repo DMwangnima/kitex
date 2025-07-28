@@ -114,7 +114,7 @@ func EncodeFrame(ctx context.Context, writer bufiox.Writer, fr *Frame) (err erro
 
 	totalLenField, err := ttheader.Encode(ctx, param, writer)
 	if err != nil {
-		return errIllegalFrame.withCause(err)
+		return errIllegalFrame.newBuilder().withCause(err)
 	}
 	if len(fr.payload) > 0 {
 		if nw, ok := writer.(gopkgthrift.NocopyWriter); ok {
@@ -123,7 +123,7 @@ func EncodeFrame(ctx context.Context, writer bufiox.Writer, fr *Frame) (err erro
 			_, err = writer.WriteBinary(fr.payload)
 		}
 		if err != nil {
-			return errTransport.withCause(err)
+			return errTransport.newBuilder().withCause(err)
 		}
 	}
 	written = writer.WrittenLen() - written
@@ -138,10 +138,10 @@ func DecodeFrame(ctx context.Context, reader bufiox.Reader) (fr *Frame, err erro
 		if errors.Is(err, io.EOF) {
 			return nil, err
 		}
-		return nil, errIllegalFrame.withCause(err)
+		return nil, errIllegalFrame.newBuilder().withCause(err)
 	}
 	if dp.Flags&ttheader.HeaderFlagsStreaming == 0 {
-		return nil, errIllegalFrame.withCause(fmt.Errorf("unexpected header flags: %d", dp.Flags))
+		return nil, errIllegalFrame.newBuilder().withCause(fmt.Errorf("unexpected header flags: %d", dp.Flags))
 	}
 
 	var ftype int32
@@ -164,7 +164,7 @@ func DecodeFrame(ctx context.Context, reader bufiox.Reader) (fr *Frame, err erro
 		ftype = rstFrameType
 		fheader = dp.StrInfo
 	default:
-		return nil, errIllegalFrame.withCause(fmt.Errorf("unexpected frame type: %v", dp.IntInfo[ttheader.FrameType]))
+		return nil, errIllegalFrame.newBuilder().withCause(fmt.Errorf("unexpected frame type: %v", dp.IntInfo[ttheader.FrameType]))
 	}
 	fmethod := dp.IntInfo[ttheader.ToMethod]
 	fsid := dp.SeqID
@@ -176,7 +176,7 @@ func DecodeFrame(ctx context.Context, reader bufiox.Reader) (fr *Frame, err erro
 		_, err = reader.ReadBinary(fpayload) // copy read
 		_ = reader.Release(err)
 		if err != nil {
-			return nil, errTransport.withCause(err)
+			return nil, errTransport.newBuilder().withCause(err)
 		}
 	} else {
 		_ = reader.Release(nil)

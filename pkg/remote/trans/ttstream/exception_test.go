@@ -30,13 +30,13 @@ import (
 
 func TestErrors(t *testing.T) {
 	causeErr := fmt.Errorf("test1")
-	newErr := errIllegalFrame.withCause(causeErr)
+	newErr := errIllegalFrame.newBuilder().withCause(causeErr)
 	test.Assert(t, errors.Is(newErr, errIllegalFrame), newErr)
 	test.Assert(t, errors.Is(newErr, kerrors.ErrStreamingProtocol), newErr)
 	test.Assert(t, strings.Contains(newErr.Error(), errIllegalFrame.Error()))
 	test.Assert(t, strings.Contains(newErr.Error(), causeErr.Error()))
 
-	appErr := errApplicationException.withCause(causeErr)
+	appErr := errApplicationException.newBuilder().withCause(causeErr)
 	test.Assert(t, errors.Is(appErr, errApplicationException), appErr)
 	test.Assert(t, !errors.Is(appErr, kerrors.ErrStreamingProtocol), appErr)
 	test.Assert(t, strings.Contains(appErr.Error(), errApplicationException.Error()))

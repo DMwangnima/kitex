@@ -43,7 +43,7 @@ func (p *shortConnTransPool) Get(network, addr string) (*clientTransport, error)
 }
 
 func (p *shortConnTransPool) Put(trans *clientTransport) {
-	_ = trans.Close(errTransport.withCause(errors.New("short connection closed")))
+	_ = trans.Close(errTransport.newBuilder().withCause(errors.New("short connection closed")))
 }
 
 func (p *shortConnTransPool) ConfigStreamCleanup(cfg streaming.StreamCleanupConfig) {

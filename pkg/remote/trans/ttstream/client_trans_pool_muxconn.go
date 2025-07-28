@@ -102,7 +102,7 @@ func (tl *muxConnTransList) Get(network, addr string) (*clientTransport, error) 
 	trans = newClientTransportWithStreamCleanup(conn, tl.pool, tl.pool.cleanupConfig)
 	_ = conn.AddCloseCallback(func(connection netpoll.Connection) error {
 		// peer close
-		_ = trans.Close(errTransport.withCause(errors.New("connection closed by peer")))
+		_ = trans.Close(errTransport.newBuilder().withCause(errors.New("connection closed by peer")))
 		return nil
 	})
 	tl.transports[idx] = trans
