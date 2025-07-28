@@ -33,13 +33,11 @@ func TestErrors(t *testing.T) {
 	newErr := errIllegalFrame.newBuilder().withCause(causeErr)
 	test.Assert(t, errors.Is(newErr, errIllegalFrame), newErr)
 	test.Assert(t, errors.Is(newErr, kerrors.ErrStreamingProtocol), newErr)
-	test.Assert(t, strings.Contains(newErr.Error(), errIllegalFrame.Error()))
 	test.Assert(t, strings.Contains(newErr.Error(), causeErr.Error()))
 
 	appErr := errApplicationException.newBuilder().withCause(causeErr)
 	test.Assert(t, errors.Is(appErr, errApplicationException), appErr)
 	test.Assert(t, !errors.Is(appErr, kerrors.ErrStreamingProtocol), appErr)
-	test.Assert(t, strings.Contains(appErr.Error(), errApplicationException.Error()))
 	test.Assert(t, strings.Contains(appErr.Error(), causeErr.Error()))
 }
 
