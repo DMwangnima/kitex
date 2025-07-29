@@ -19,7 +19,6 @@ package ttstream
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/bytedance/gopkg/lang/mcache"
@@ -39,7 +38,7 @@ var (
 )
 
 // newBasicStream is a common function creating stream basic fields,
-// pls use newClientSideStream or newServerSideStream to create the real stream
+// pls use newClientStream or newServerStream to create the real stream exposing to users
 func newBasicStream(ctx context.Context, writer streamWriter, smeta streamFrame) *stream {
 	s := new(stream)
 	s.ctx = ctx
@@ -91,9 +90,8 @@ type stream struct {
 	headerSig  chan int32
 	trailerSig chan int32
 
-	state                 int32
-	clientStreamException atomic.Value     // type must be of *Exception, only valid in client-side stream
-	cancelFunc            cancelWithReason // only valid in server-side stream
+	state      int32
+	cancelFunc cancelWithReason // only valid in server-side stream
 
 	recvTimeout   time.Duration
 	closeCallback []func(error)

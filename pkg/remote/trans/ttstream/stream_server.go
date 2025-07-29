@@ -162,7 +162,7 @@ func (s *serverStream) onReadRstFrame(fr *Frame) (err error) {
 	var appEx *thrift.ApplicationException
 	if len(fr.payload) > 0 {
 		// exception is type of (*thrift.ApplicationException)
-		appEx, err = unmarshalException(fr.payload)
+		appEx, err = decodeException(fr.payload)
 		if err != nil {
 			klog.Errorf("KITEX: stream[%d] unmarshal Exception in rst frame failed, err: %v", s.sid, err)
 			appEx = defaultRstException

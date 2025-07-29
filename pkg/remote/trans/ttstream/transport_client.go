@@ -96,7 +96,7 @@ func newClientTransport(conn netpoll.Connection, pool transPool) *clientTranspor
 func newClientTransportWithStreamCleanup(conn netpoll.Connection, pool transPool, cfg streaming.StreamCleanupConfig) *clientTransport {
 	t := newClientTransport(conn, pool)
 	t.streamCleanupCfg = cfg
-	if t.streamCleanupCfg.Enable {
+	if !t.streamCleanupCfg.Disable {
 		ticker := globalTickerManager.getOrSetNewTicker(t.streamCleanupCfg.CleanInterval)
 		ticker.Add(t)
 	}
@@ -126,7 +126,7 @@ func (t *clientTransport) Close(exception error) (err error) {
 	// then close stream and frame pipes
 	t.spipe.Close()
 	t.fpipe.Close()
-	if t.streamCleanupCfg.Enable {
+	if !t.streamCleanupCfg.Disable {
 		ticker := globalTickerManager.getOrSetNewTicker(t.streamCleanupCfg.CleanInterval)
 		ticker.Delete(t)
 	}

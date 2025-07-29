@@ -24,13 +24,6 @@ import (
 	"github.com/cloudwego/kitex/pkg/kerrors"
 )
 
-//type tException interface {
-//	Error() string
-//	TypeId() int32
-//	Message() string
-//	TriggeredBy() string
-//}
-
 var (
 	errApplicationException = newException("application exception", nil, 12001)
 	errUnexpectedHeader     = newException("unexpected header frame", kerrors.ErrStreamingProtocol, 12002)
@@ -41,11 +34,11 @@ var (
 
 	errBizCancel = newException("user code invoking stream RPC with context processed by context.WithCancel or context.WithTimeout, then invoking cancel() actively",
 		kerrors.ErrStreamingCanceled, 12007)
-	// todo: support cancelWithCause
-	// errBizCancelWithCause = newCanceledExceptionType("user code canceled with cancelCause(error)", kerrors.ErrStreamingCanceled, 12008)
-	errDownstreamCancel = newException("canceled by downstream", kerrors.ErrStreamingCanceled, 12010)
-	errUpstreamCancel   = newException("canceled by upstream", kerrors.ErrStreamingCanceled, 12009)
-	errInternalCancel   = newException("internal canceled", kerrors.ErrStreamingCanceled, 12011)
+	// todo: judge cancelCause when Kitex supports go 1.20
+	errBizCancelWithCause = newException("user code canceled with cancelCause(error)", kerrors.ErrStreamingCanceled, 12008)
+	errDownstreamCancel   = newException("canceled by downstream", kerrors.ErrStreamingCanceled, 12009)
+	errUpstreamCancel     = newException("canceled by upstream", kerrors.ErrStreamingCanceled, 12010)
+	errInternalCancel     = newException("internal canceled", kerrors.ErrStreamingCanceled, 12011)
 )
 
 const (
@@ -65,7 +58,8 @@ type Exception struct {
 
 	// error hierarchy
 	parent error
-	cause  error
+	// when cause is set, replace message to cause.Error() when displaying error information
+	cause error
 
 	bitSet uint8
 }
@@ -74,6 +68,8 @@ func newException(message string, parent error, typeId int32) *Exception {
 	return &Exception{message: message, parent: parent, typeId: typeId}
 }
 
+// newBuilder shallow-copy a new Exception.
+// this func should be invoked before building a new Exception from pre-defined Exceptions
 func (e *Exception) newBuilder() *Exception {
 	newEx := *e
 	return &newEx
@@ -135,11 +131,7 @@ func (e *Exception) isSideSet() bool {
 }
 
 func (e *Exception) setOrAppendVia(via string) *Exception {
-	if len(e.via) > 0 {
-		e.via += "," + via
-	} else {
-		e.via = via
-	}
+	e.via = appendVia(e.via, via)
 	e.bitSet |= setVia
 	return e
 }
@@ -164,4 +156,11 @@ func (e *Exception) Message() string {
 
 func (e *Exception) TypeId() int32 {
 	return e.typeId
+}
+
+func appendVia(oriVia string, node string) string {
+	if len(oriVia) > 0 {
+		return strings.Join([]string{oriVia, node}, ",")
+	}
+	return node
 }

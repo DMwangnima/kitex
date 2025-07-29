@@ -27,7 +27,7 @@ import (
 const defaultStreamCleanupInterval time.Duration = 5 * time.Second
 
 var defaultStreamCleanupConfig = streaming.StreamCleanupConfig{
-	Enable:        true,
+	Disable:       false,
 	CleanInterval: defaultStreamCleanupInterval,
 }
 

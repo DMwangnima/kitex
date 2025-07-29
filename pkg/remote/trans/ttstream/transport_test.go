@@ -492,7 +492,6 @@ func initTestStreams(t *testing.T, cCtx context.Context, method string, cliNodeN
 	intHeader := make(IntHeader)
 	strHeader := make(streaming.Header)
 	cleanupCfg := streaming.StreamCleanupConfig{
-		Enable:        true,
 		CleanInterval: 100 * time.Millisecond,
 	}
 	ctrans := newClientTransportWithStreamCleanup(cconn, nil, cleanupCfg)

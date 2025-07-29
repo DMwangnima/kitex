@@ -243,14 +243,30 @@ func EncodeException(ctx context.Context, method string, seq int32, ex error) ([
 	return gopkgthrift.MarshalFastMsg(method, gopkgthrift.EXCEPTION, seq, appEx)
 }
 
-func unmarshalException(buf []byte) (*gopkgthrift.ApplicationException, error) {
+func getThriftMessageTypeStr(typ gopkgthrift.TMessageType) string {
+	switch typ {
+	case gopkgthrift.INVALID_TMESSAGE_TYPE:
+		return "InvalidTMessageType"
+	case gopkgthrift.CALL:
+		return "Call"
+	case gopkgthrift.REPLY:
+		return "Reply"
+	case gopkgthrift.EXCEPTION:
+		return "Exception"
+	case gopkgthrift.ONEWAY:
+		return "Oneway"
+	default:
+		return fmt.Sprintf("Unknown ThriftMessageType: %d", typ)
+	}
+}
+
+func decodeException(buf []byte) (*gopkgthrift.ApplicationException, error) {
 	_, msgType, _, i, err := gopkgthrift.Binary.ReadMessageBegin(buf)
 	if err != nil {
 		return nil, err
 	}
 	if msgType != gopkgthrift.EXCEPTION {
-		// todo: create a string map
-		return nil, fmt.Errorf("thrift message type want Exception, but got %d", msgType)
+		return nil, fmt.Errorf("thrift message type want Exception, but got %s", getThriftMessageTypeStr(msgType))
 	}
 	buf = buf[i:]
 

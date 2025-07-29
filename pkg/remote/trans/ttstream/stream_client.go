@@ -43,7 +43,8 @@ func newClientStream(ctx context.Context, writer streamWriter, smeta streamFrame
 
 type clientStream struct {
 	*stream
-	metaFrameHandler MetaFrameHandler
+	metaFrameHandler     MetaFrameHandler
+	closeStreamException atomic.Value // type must be of *Exception
 }
 
 func (s *clientStream) Header() (streaming.Header, error) {
@@ -78,11 +79,9 @@ func (s *clientStream) Trailer() (streaming.Trailer, error) {
 
 func (s *clientStream) SendMsg(ctx context.Context, req any) error {
 	if state := atomic.LoadInt32(&s.state); state != streamStateActive {
-		if ex := s.stream.clientStreamException.Load(); ex == nil {
-			// todo: add client side information
+		if ex := s.closeStreamException.Load(); ex == nil {
 			return errIllegalOperation.newBuilder().withSide(clientSide).withCause(errors.New("stream is closed send"))
 		} else {
-			klog.Info("clientStream SendMsg retrieve clientStreamException: %v", ex)
 			return ex.(error)
 		}
 	}
@@ -95,7 +94,6 @@ func (s *clientStream) RecvMsg(ctx context.Context, resp any) error {
 
 // CloseSend by clientStream only send trailer frame and will not close the stream
 func (s *clientStream) CloseSend(ctx context.Context) error {
-	// todo: think about close stream multiple times
 	if !atomic.CompareAndSwapInt32(&s.state, streamStateActive, streamStateHalfCloseLocal) {
 		return nil
 	}
@@ -117,18 +115,12 @@ func (s *clientStream) ctxDoneCallback(ctx context.Context) {
 	// biz code invokes cancel()
 	case context.Canceled:
 		finalEx = errBizCancel.newBuilder().withSide(clientSide)
-		if s.rpcInfo != nil {
-			via = svcName
-		}
+		via = appendVia("", svcName)
 	default:
 		if tEx, ok := cErr.(*Exception); ok {
-			// for cascading cancel case, we need to change the information from server-side to client-side
+			// for cascading cancel case, we need to change the side from server to client
 			finalEx = tEx.newBuilder().withSide(clientSide)
-			if tEx.via == "" {
-				via = svcName
-			} else {
-				via = tEx.via + "," + svcName
-			}
+			via = appendVia(tEx.via, svcName)
 		} else {
 			finalEx = errInternalCancel.newBuilder().withSide(clientSide).withCause(cErr)
 		}
@@ -139,7 +131,9 @@ func (s *clientStream) ctxDoneCallback(ctx context.Context) {
 
 func (s *clientStream) close(exception error, sendRst bool, via string) {
 	if exception != nil {
-		s.clientStreamException.Store(exception)
+		// store exception before change clientStream state
+		// otherwise clientStream.Send would not get the real stream closed reason
+		s.closeStreamException.Store(exception)
 	}
 	oldState := atomic.SwapInt32(&s.state, streamStateInactive)
 	if oldState == streamStateInactive {
@@ -154,17 +148,20 @@ func (s *clientStream) close(exception error, sendRst bool, via string) {
 	case s.trailerSig <- streamSigInactive:
 	default:
 	}
+	// clientStream.Recv would get the exception
 	s.reader.close(exception)
 	if sendRst {
-		s.sendRst(exception, via)
+		if err := s.sendRst(exception, via); err != nil {
+			klog.Errorf("KITEX: stream[%d] send Rst Frame failed, err: %v", s.sid, err)
+		}
 	}
 	// ServerStreaming would invoke CloseSend automatically
 	if oldState != streamStateHalfCloseLocal {
-		// For client-side stream, if trailer frame is received, finish the lifecycle directly.
+		// For clientStream, if trailer frame or rst frame are received, finish the lifecycle directly.
 		// But Some downstream components may not be upgraded and need to receive a Trailer Frame to end the Stream's lifecycle.
-		// For better compatibility, we choose to send a Trailer Frame when the client-side Stream is closed to.
+		// For better compatibility, we choose to send a Trailer Frame when the clientStream is closed.
 		//
-		// remove this logic in the future.
+		// todo: remove this logic in the future.
 		s.closeSend(nil)
 	}
 	s.runCloseCallback(exception)
@@ -197,13 +194,17 @@ func (s *clientStream) onReadHeaderFrame(fr *Frame) error {
 	return nil
 }
 
-func (s *clientStream) onReadTrailerFrame(fr *Frame) (err error) {
+func (s *clientStream) onReadTrailerFrame(fr *Frame) error {
 	var exception error
 	// when server-side returns non-biz error, it will be wrapped as ApplicationException stored in trailer frame payload
 	if len(fr.payload) > 0 {
 		// exception is type of (*thrift.ApplicationException)
-		_, _, err = thrift.UnmarshalFastMsg(fr.payload, nil)
-		exception = errApplicationException.newBuilder().withSide(clientSide).withCause(err)
+		appEx, err := decodeException(fr.payload)
+		if err != nil {
+			exception = errIllegalFrame.newBuilder().withSide(clientSide).withCause(err)
+		} else {
+			exception = errApplicationException.newBuilder().withSide(clientSide).withCause(appEx)
+		}
 	} else if len(fr.trailer) > 0 {
 		// when server-side returns biz error, payload is empty and biz error information is stored in trailer frame header
 		bizErr, err := transmeta.ParseBizStatusErr(fr.trailer)
@@ -214,6 +215,7 @@ func (s *clientStream) onReadTrailerFrame(fr *Frame) (err error) {
 			exception = bizErr
 		}
 	}
+
 	s.trailer = fr.trailer
 	select {
 	case s.trailerSig <- streamSigActive:
@@ -225,7 +227,6 @@ func (s *clientStream) onReadTrailerFrame(fr *Frame) (err error) {
 	default:
 	}
 
-	klog.Debugf("stream[%d] recv trailer: %v, exception: %v", s.sid, s.trailer, exception)
 	// client-side stream recv trailer, the lifecycle of whole stream has ended
 	s.close(exception, false, "")
 	return nil
@@ -236,7 +237,7 @@ func (s *clientStream) onReadRstFrame(fr *Frame) (err error) {
 	var appEx *thrift.ApplicationException
 	if len(fr.payload) > 0 {
 		// exception is type of (*thrift.ApplicationException)
-		appEx, err = unmarshalException(fr.payload)
+		appEx, err = decodeException(fr.payload)
 		if err != nil {
 			klog.Errorf("KITEX: stream[%d] unmarshal Exception in rst frame failed, err: %v", s.sid, err)
 			appEx = defaultRstException
@@ -249,7 +250,6 @@ func (s *clientStream) onReadRstFrame(fr *Frame) (err error) {
 	// distract via information
 	var via string
 	if fr.header != nil {
-		// cascading link initial node
 		hdrVia, ok := fr.header[ttheader.HeaderVia]
 		if ok {
 			via = hdrVia
@@ -261,6 +261,7 @@ func (s *clientStream) onReadRstFrame(fr *Frame) (err error) {
 	} else {
 		rstEx = rstEx.withCauseAndTypeId(appEx, appEx.TypeId())
 	}
+
 	s.trailer = fr.trailer
 	select {
 	case s.trailerSig <- streamSigActive:
@@ -272,7 +273,6 @@ func (s *clientStream) onReadRstFrame(fr *Frame) (err error) {
 	default:
 	}
 
-	klog.Infof("stream[%d] recv header: %v, exception: %v", s.sid, fr.header, rstEx)
 	// when receiving rst frame, we should close stream and there is no need to send rst frame
 	s.close(rstEx, false, "")
 	return nil
