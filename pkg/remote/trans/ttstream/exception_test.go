@@ -53,6 +53,18 @@ func TestCommonParentKerror(t *testing.T) {
 		test.Assert(t, errors.Is(err, kerrors.ErrStreamingProtocol), err)
 	}
 	test.Assert(t, !errors.Is(errApplicationException, kerrors.ErrStreamingProtocol))
+
+	// canceled Exception
+	errs = []error{
+		errBizCancel,
+		errBizCancelWithCause,
+		errDownstreamCancel,
+		errUpstreamCancel,
+		errInternalCancel,
+	}
+	for _, err := range errs {
+		test.Assert(t, errors.Is(err, kerrors.ErrStreamingCanceled), err)
+	}
 }
 
 func TestGetTypeId(t *testing.T) {
