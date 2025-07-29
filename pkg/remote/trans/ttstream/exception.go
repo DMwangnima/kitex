@@ -159,7 +159,7 @@ func (e *Exception) TypeId() int32 {
 }
 
 // appendVia is a common util func to process via metadata in Rst Frame and Exception
-func appendVia(oriVia string, node string) string {
+func appendVia(oriVia, node string) string {
 	if len(oriVia) > 0 {
 		return strings.Join([]string{oriVia, node}, ",")
 	}

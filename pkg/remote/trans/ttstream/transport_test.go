@@ -482,7 +482,7 @@ type proxyTestSuite struct {
 }
 
 // initTestStreams initializes a pair of clientStream and serverStream for test
-func initTestStreams(t *testing.T, cCtx context.Context, method string, cliNodeName, srvNodeName string) (*clientStream, *serverStream) {
+func initTestStreams(t *testing.T, cCtx context.Context, method, cliNodeName, srvNodeName string) (*clientStream, *serverStream) {
 	cfd, sfd := netpoll.GetSysFdPairs()
 	cconn, err := netpoll.NewFDConnection(cfd)
 	test.Assert(t, err == nil, err)

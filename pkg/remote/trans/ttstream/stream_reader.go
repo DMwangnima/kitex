@@ -85,10 +85,6 @@ func (s *streamReader) output(ctx context.Context) (payload []byte, err error) {
 	return msg.payload, nil
 }
 
-func (s *streamReader) cancel() {
-	s.pipe.Cancel()
-}
-
 func (s *streamReader) close(exception error) {
 	if exception != nil {
 		_ = s.pipe.Write(context.Background(), streamMsg{exception: exception})
