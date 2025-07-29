@@ -18,6 +18,7 @@ package ttstream
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 
 	"github.com/cloudwego/gopkg/protocol/thrift"
@@ -33,11 +34,13 @@ var _ ServerStreamMeta = (*serverStream)(nil)
 func newServerStream(ctx context.Context, writer streamWriter, smeta streamFrame) *serverStream {
 	s := newBasicStream(ctx, writer, smeta)
 	s.reader = newStreamReader()
-	return &serverStream{s}
+	return &serverStream{stream: s}
 }
 
 type serverStream struct {
 	*stream
+	state      int32
+	cancelFunc cancelWithReason
 }
 
 func (s *serverStream) SetHeader(hd streaming.Header) error {
@@ -48,11 +51,44 @@ func (s *serverStream) SendHeader(hd streaming.Header) error {
 	if err := s.writeHeader(hd); err != nil {
 		return err
 	}
-	return s.stream.sendHeader()
+	return s.sendHeader()
+}
+
+// writeHeader copy kvs into s.wheader
+func (s *serverStream) writeHeader(hd streaming.Header) error {
+	if s.stream.wheader == nil {
+		return fmt.Errorf("stream header already sent")
+	}
+	for k, v := range hd {
+		s.stream.wheader[k] = v
+	}
+	return nil
+}
+
+// sendHeader send header to peer
+func (s *serverStream) sendHeader() (err error) {
+	wheader := s.stream.wheader
+	s.stream.wheader = nil
+	if wheader == nil {
+		return fmt.Errorf("stream header already sent")
+	}
+	err = s.writeFrame(headerFrameType, wheader, nil, nil)
+	return err
 }
 
 func (s *serverStream) SetTrailer(tl streaming.Trailer) error {
 	return s.writeTrailer(tl)
+}
+
+// writeTrailer write trailer to peer
+func (s *serverStream) writeTrailer(tl streaming.Trailer) (err error) {
+	if s.stream.wtrailer == nil {
+		return fmt.Errorf("stream trailer already sent")
+	}
+	for k, v := range tl {
+		s.stream.wtrailer[k] = v
+	}
+	return nil
 }
 
 func (s *serverStream) RecvMsg(ctx context.Context, req any) error {
@@ -64,7 +100,6 @@ func (s *serverStream) SendMsg(ctx context.Context, res any) error {
 	if st := atomic.LoadInt32(&s.state); st == streamStateInactive {
 		return s.ctx.Err()
 	}
-	// todo: consider SendHeader and status change
 	if s.wheader != nil {
 		if err := s.sendHeader(); err != nil {
 			return err
@@ -80,7 +115,7 @@ func (s *serverStream) CloseSend(exception error) error {
 	if err != nil {
 		return err
 	}
-	return s.close(nil)
+	return s.close(exception)
 }
 
 // closeRecv called only when server receiving Trailer Frame

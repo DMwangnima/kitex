@@ -90,9 +90,6 @@ type stream struct {
 	headerSig  chan int32
 	trailerSig chan int32
 
-	state      int32
-	cancelFunc cancelWithReason // only valid in server-side stream
-
 	recvTimeout   time.Duration
 	closeCallback []func(error)
 }
@@ -196,39 +193,6 @@ func (s *stream) writeFrame(ftype int32, header streaming.Header, trailer stream
 	return s.writer.WriteFrame(fr)
 }
 
-// writeHeader copy kvs into s.wheader
-func (s *stream) writeHeader(hd streaming.Header) error {
-	if s.wheader == nil {
-		return fmt.Errorf("stream header already sent")
-	}
-	for k, v := range hd {
-		s.wheader[k] = v
-	}
-	return nil
-}
-
-// sendHeader send header to peer
-func (s *stream) sendHeader() (err error) {
-	wheader := s.wheader
-	s.wheader = nil
-	if wheader == nil {
-		return fmt.Errorf("stream header already sent")
-	}
-	err = s.writeFrame(headerFrameType, wheader, nil, nil)
-	return err
-}
-
-// writeTrailer write trailer to peer
-func (s *stream) writeTrailer(tl streaming.Trailer) (err error) {
-	if s.wtrailer == nil {
-		return fmt.Errorf("stream trailer already sent")
-	}
-	for k, v := range tl {
-		s.wtrailer[k] = v
-	}
-	return nil
-}
-
 // writeTrailer send trailer to peer
 // if exception is not nil, trailer frame should carry a payload
 func (s *stream) sendTrailer(exception error) (err error) {
@@ -256,7 +220,6 @@ func (s *stream) sendRst(exception error, via string) (err error) {
 	if exception != nil {
 		payload, err = EncodeException(context.Background(), s.method, s.sid, exception)
 		if err != nil {
-			// todo: log but not return err
 			return err
 		}
 	}

@@ -43,6 +43,7 @@ func newClientStream(ctx context.Context, writer streamWriter, smeta streamFrame
 
 type clientStream struct {
 	*stream
+	state                int32
 	metaFrameHandler     MetaFrameHandler
 	closeStreamException atomic.Value // type must be of *Exception
 }
@@ -211,6 +212,7 @@ func (s *clientStream) onReadTrailerFrame(fr *Frame) error {
 		if err != nil {
 			exception = errIllegalBizErr.newBuilder().withSide(clientSide).withCause(err)
 		} else if bizErr != nil {
+			// todo: unify bizErr with Exception
 			// bizErr is independent of rpc exception handling
 			exception = bizErr
 		}
