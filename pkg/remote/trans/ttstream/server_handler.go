@@ -36,7 +36,6 @@ import (
 	"github.com/cloudwego/kitex/pkg/kerrors"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/remote"
-	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream/ktx"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/streaming"
 	"github.com/cloudwego/kitex/pkg/utils"
@@ -204,10 +203,6 @@ func (t *svrTransHandler) OnStream(ctx context.Context, conn net.Conn, st *serve
 	// register metainfo into ctx
 	ctx = metainfo.SetMetaInfoFromMap(ctx, st.header)
 
-	// cancel ctx when OnStreamFinish
-	ctx, cancelFunc := ktx.WithCancel(ctx)
-	ctx = context.WithValue(ctx, serverStreamCancelCtxKey{}, cancelFunc)
-
 	ctx = t.startTracer(ctx, ri)
 	defer func() {
 		panicErr := recover()
@@ -294,11 +289,6 @@ func (t *svrTransHandler) OnStreamFinish(ctx context.Context, ss streaming.Serve
 	// server stream CloseSend will send the trailer with payload
 	if err = sst.CloseSend(exception); err != nil {
 		return nil, err
-	}
-
-	cancelFunc, _ := ctx.Value(serverStreamCancelCtxKey{}).(context.CancelFunc)
-	if cancelFunc != nil {
-		cancelFunc()
 	}
 
 	return ctx, nil

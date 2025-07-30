@@ -37,6 +37,16 @@ func newServerStream(ctx context.Context, writer streamWriter, smeta streamFrame
 	return &serverStream{stream: s}
 }
 
+// initial state: streamStateActive
+//
+//	                   close()
+// streamStateActive ----------> streamStateInactive
+//       |                                  ^
+//	     |                                  |
+//	     | closeRecv()                      | close()
+//	     v                                  |
+//	     +--- streamStateHalfCloseRemote ---+
+
 type serverStream struct {
 	*stream
 	state      int32
@@ -111,11 +121,7 @@ func (s *serverStream) SendMsg(ctx context.Context, res any) error {
 // CloseSend by serverStream will be called after server handler returned
 // after CloseSend stream cannot be access again
 func (s *serverStream) CloseSend(exception error) error {
-	err := s.closeSend(exception)
-	if err != nil {
-		return err
-	}
-	return s.close(exception)
+	return s.close(exception, true)
 }
 
 // closeRecv called only when server receiving Trailer Frame
@@ -134,7 +140,7 @@ func (s *serverStream) closeRecv(exception error) error {
 	return nil
 }
 
-func (s *serverStream) close(exception error) error {
+func (s *serverStream) close(exception error, sendTrailer bool) error {
 	// support cascading cancel
 	// we must cancel the ctx first before change the state change
 	// otherwise Recv/Send will get the expected exception
@@ -154,6 +160,10 @@ func (s *serverStream) close(exception error) error {
 
 	s.reader.close(exception)
 	s.runCloseCallback(exception)
+
+	if sendTrailer {
+		return s.stream.sendTrailer(exception)
+	}
 	return nil
 }
 
@@ -235,7 +245,7 @@ func (s *serverStream) onReadRstFrame(fr *Frame) (err error) {
 
 	klog.Infof("stream[%d] recv header: %v, exception: %v", s.sid, fr.header, rstEx)
 	// when receiving rst frame, we should close stream and there is no need to send rst frame
-	return s.close(rstEx)
+	return s.close(rstEx, false)
 }
 
 func (s *serverStream) closeTest(exception error, via string) error {

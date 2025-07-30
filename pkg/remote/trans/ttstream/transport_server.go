@@ -107,7 +107,7 @@ func (t *serverTransport) Close(exception error) (err error) {
 	// close streams first
 	t.streams.Range(func(key, value any) bool {
 		s := value.(*serverStream)
-		_ = s.close(exception)
+		_ = s.close(exception, false)
 		return true
 	})
 	// then close stream and frame pipes

@@ -68,8 +68,6 @@ const (
 	streamSigCancel   int32 = -2
 )
 
-// streamState transition
-// todo: using AI to draw streamState transition
 const (
 	streamStateActive          int32 = 0 // when stream is created, init state is active
 	streamStateHalfCloseLocal  int32 = 1
@@ -156,20 +154,6 @@ func (s *stream) RecvMsg(ctx context.Context, data any) error {
 
 func (s *stream) RegisterCloseCallback(cb func(error)) {
 	s.closeCallback = append(s.closeCallback, cb)
-}
-
-// todo: modify this function
-// closeSend should be called when following cases happen:
-// client:
-// - user call CloseSend
-// - client recv a trailer
-// - transport layer exception
-// server:
-// - server handler return
-// - transport layer exception
-func (s *stream) closeSend(exception error) error {
-	err := s.sendTrailer(exception)
-	return err
 }
 
 func (s *stream) setRecvTimeout(timeout time.Duration) {

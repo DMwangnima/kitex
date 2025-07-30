@@ -41,6 +41,16 @@ func newClientStream(ctx context.Context, writer streamWriter, smeta streamFrame
 	return cs
 }
 
+// initial state: streamStateActive
+//
+//	                   close()
+// streamStateActive ----------> streamStateInactive
+//       |                                 ^
+//	     |                                 |
+//	     | CloseSend()                     | close()
+//	     v                                 |
+//	     +--- streamStateHalfCloseLocal ---+
+
 type clientStream struct {
 	*stream
 	state                int32
@@ -98,7 +108,7 @@ func (s *clientStream) CloseSend(ctx context.Context) error {
 	if !atomic.CompareAndSwapInt32(&s.state, streamStateActive, streamStateHalfCloseLocal) {
 		return nil
 	}
-	return s.closeSend(nil)
+	return s.sendTrailer(nil)
 }
 
 func (s *clientStream) Context() context.Context {
@@ -163,7 +173,7 @@ func (s *clientStream) close(exception error, sendRst bool, via string) {
 		// For better compatibility, we choose to send a Trailer Frame when the clientStream is closed.
 		//
 		// todo: remove this logic in the future.
-		s.closeSend(nil)
+		s.stream.sendTrailer(nil)
 	}
 	s.runCloseCallback(exception)
 }
