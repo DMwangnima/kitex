@@ -163,9 +163,10 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) (err error)
 // - create  server stream
 // - process server stream
 // - close   server stream
+// igrore the ctx passed in and make use of st.ctx instead
 func (t *svrTransHandler) OnStream(ctx context.Context, conn net.Conn, st *serverStream) (err error) {
 	ri := t.opt.InitOrResetRPCInfoFunc(nil, conn.RemoteAddr())
-	ctx = rpcinfo.NewCtxWithRPCInfo(ctx, ri)
+	stCtx := rpcinfo.NewCtxWithRPCInfo(st.ctx, ri)
 	defer func() {
 		if rpcinfo.PoolEnabled() {
 			ri = t.opt.InitOrResetRPCInfoFunc(ri, conn.RemoteAddr())
@@ -195,41 +196,42 @@ func (t *svrTransHandler) OnStream(ctx context.Context, conn net.Conn, st *serve
 	// headerHandler return a new stream level ctx
 	// it contains rpcinfo modified by HeaderHandler
 	if t.headerHandler != nil {
-		ctx, err = t.headerHandler.OnReadStream(ctx, st.meta, st.header)
+		stCtx, err = t.headerHandler.OnReadStream(stCtx, st.meta, st.header)
 		if err != nil {
 			return
 		}
 	}
 	// register metainfo into ctx
-	ctx = metainfo.SetMetaInfoFromMap(ctx, st.header)
+	stCtx = metainfo.SetMetaInfoFromMap(stCtx, st.header)
 
-	ctx = t.startTracer(ctx, ri)
+	stCtx = t.startTracer(stCtx, ri)
 	defer func() {
 		panicErr := recover()
 		if panicErr != nil {
 			if conn != nil {
-				klog.CtxErrorf(ctx, "KITEX: ttstream panic happened, close conn, remoteAddress=%s, error=%s\nstack=%s", conn.RemoteAddr(), panicErr, string(debug.Stack()))
+				klog.CtxErrorf(stCtx, "KITEX: ttstream panic happened, close conn, remoteAddress=%s, error=%s\nstack=%s", conn.RemoteAddr(), panicErr, string(debug.Stack()))
 			} else {
-				klog.CtxErrorf(ctx, "KITEX: ttstream panic happened, error=%v\nstack=%s", panicErr, string(debug.Stack()))
+				klog.CtxErrorf(stCtx, "KITEX: ttstream panic happened, error=%v\nstack=%s", panicErr, string(debug.Stack()))
 			}
 		}
-		t.finishTracer(ctx, ri, err, panicErr)
+		t.finishTracer(stCtx, ri, err, panicErr)
 	}()
+	st.ctx = stCtx
 	args := &streaming.Args{
 		ServerStream: st,
 	}
-	if err = t.inkHdlFunc(ctx, args, nil); err != nil {
+	if err = t.inkHdlFunc(stCtx, args, nil); err != nil {
 		// treat err thrown by invoking handler as the final err, ignore the err returned by OnStreamFinish
-		_, _ = t.OnStreamFinish(ctx, st, err)
+		_, _ = t.OnStreamFinish(stCtx, st, err)
 		return
 	}
 	if bizErr := ri.Invocation().BizStatusErr(); bizErr != nil {
 		// when biz err thrown, treat the err returned by OnStreamFinish as the final err
-		ctx, err = t.OnStreamFinish(ctx, st, bizErr)
+		stCtx, err = t.OnStreamFinish(stCtx, st, bizErr)
 		return
 	}
 	// there is no invoking handler err or biz err, treat the err returned by OnStreamFinish as the final err
-	ctx, err = t.OnStreamFinish(ctx, st, nil)
+	stCtx, err = t.OnStreamFinish(stCtx, st, nil)
 	return
 }
 
