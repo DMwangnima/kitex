@@ -167,7 +167,9 @@ func TestGetServerConn(t *testing.T) {
 			s := grpc.CreateStream(ctx, 1, func(i int) {}, mocks.MockServiceName+"/"+mocks.MockStreamingMethod)
 			srvConn := newServerConn(svrTrans.tr, s)
 
-			transHdl.handleFunc(s, svrTrans, srvConn)
+			rCtx, ri, serviceName, methodName, ok := transHdl.handleCtx(svrTrans, s)
+			test.Assert(t, ok)
+			transHdl.handleFunc(s, svrTrans, srvConn, rCtx, ri, serviceName, methodName)
 		})
 	}
 }

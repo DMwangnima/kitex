@@ -133,8 +133,22 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) error {
 	tr := svrTrans.tr
 	tr.HandleStreams(func(s *grpcTransport.Stream) {
 		atomic.AddInt32(&svrTrans.handlerNum, 1)
+		// we need to execute handleCtx synchronously to ensure that
+		// after the handleStream callback completes (i.e., when this Stream becomes visible at the gRPC layer),
+		// tracing-related information such as spans contained within ctx can be directly utilized.
+		rCtx, ri, serviceName, methodName, ok := t.handleCtx(svrTrans, s)
+		if !ok {
+			// reset rpcinfo for performance (PR #584)
+			if rpcinfo.PoolEnabled() {
+				ri = t.opt.InitOrResetRPCInfoFunc(ri, conn.RemoteAddr())
+				svrTrans.pool.Put(ri)
+			}
+			return
+		}
+		// set the processed ctx back to Stream so that it can make use of tracing-related information
+		s.SetContext(rCtx)
 		gofunc.GoFunc(ctx, func() {
-			t.handleFunc(s, svrTrans, conn)
+			t.handleFunc(s, svrTrans, conn, rCtx, ri, serviceName, methodName)
 			atomic.AddInt32(&svrTrans.handlerNum, -1)
 		})
 	}, func(ctx context.Context, method string) context.Context {
@@ -143,17 +157,14 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) error {
 	return nil
 }
 
-func (t *svrTransHandler) handleFunc(s *grpcTransport.Stream, svrTrans *SvrTrans, conn net.Conn) {
+// handleCtx initialize rpcinfo, parse gRPC meta and start tracer.
+// it handles all logics related to ctx.
+func (t *svrTransHandler) handleCtx(svrTrans *SvrTrans, s *grpcTransport.Stream) (
+	rCtx context.Context, ri rpcinfo.RPCInfo, serviceName, methodName string, ok bool,
+) {
 	tr := svrTrans.tr
-	ri := svrTrans.pool.Get().(rpcinfo.RPCInfo)
-	rCtx := rpcinfo.NewCtxWithRPCInfo(s.Context(), ri)
-	defer func() {
-		// reset rpcinfo for performance (PR #584)
-		if rpcinfo.PoolEnabled() {
-			ri = t.opt.InitOrResetRPCInfoFunc(ri, conn.RemoteAddr())
-			svrTrans.pool.Put(ri)
-		}
-	}()
+	ri = svrTrans.pool.Get().(rpcinfo.RPCInfo)
+	rCtx = rpcinfo.NewCtxWithRPCInfo(s.Context(), ri)
 
 	ink := ri.Invocation().(rpcinfo.InvocationSetter)
 	sm := s.Method()
@@ -166,7 +177,7 @@ func (t *svrTransHandler) handleFunc(s *grpcTransport.Stream, svrTrans *SvrTrans
 		tr.WriteStatus(s, status.New(codes.Internal, errDesc))
 		return
 	}
-	methodName := sm[pos+1:]
+	methodName = sm[pos+1:]
 	ink.SetMethodName(methodName)
 
 	if mutableTo := rpcinfo.AsMutableEndpointInfo(ri.To()); mutableTo != nil {
@@ -182,7 +193,6 @@ func (t *svrTransHandler) handleFunc(s *grpcTransport.Stream, svrTrans *SvrTrans
 		rCtx = context.WithValue(rCtx, consts.CtxKeyMethod, methodName)
 	}
 
-	var serviceName string
 	idx := strings.LastIndex(sm[:pos], ".")
 	if idx == -1 {
 		ink.SetPackageName("")
@@ -206,6 +216,23 @@ func (t *svrTransHandler) handleFunc(s *grpcTransport.Stream, svrTrans *SvrTrans
 		}
 	}
 	rCtx = t.startTracer(rCtx, ri)
+	ok = true
+	return
+}
+
+func (t *svrTransHandler) handleFunc(
+	s *grpcTransport.Stream, svrTrans *SvrTrans, conn net.Conn,
+	rCtx context.Context, ri rpcinfo.RPCInfo, serviceName, methodName string,
+) {
+	var err error
+	tr := svrTrans.tr
+	defer func() {
+		// reset rpcinfo for performance (PR #584)
+		if rpcinfo.PoolEnabled() {
+			ri = t.opt.InitOrResetRPCInfoFunc(ri, conn.RemoteAddr())
+			svrTrans.pool.Put(ri)
+		}
+	}()
 	defer func() {
 		panicErr := recover()
 		if panicErr != nil {
@@ -237,6 +264,7 @@ func (t *svrTransHandler) handleFunc(s *grpcTransport.Stream, svrTrans *SvrTrans
 	// GetServerConn could retrieve rawStream by Stream.Context().Value(serverConnKey{})
 	rawStream.ctx = rCtx
 
+	ink := ri.Invocation().(rpcinfo.InvocationSetter)
 	if methodInfo == nil {
 		unknownServiceHandlerFunc := t.opt.GRPCUnknownServiceHandler
 		if unknownServiceHandlerFunc != nil {

@@ -213,6 +213,7 @@ func NewOptions(opts []Option) *Options {
 		}
 		o.StatsLevel = &level
 	}
+	ropt.GRPCCfg.StreamEventHandler = o.TracerCtl.GetStreamEventHandler()
 	return o
 }
 
