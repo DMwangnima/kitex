@@ -304,7 +304,7 @@ func TestTransportClose(t *testing.T) {
 
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		strans.Close(nil)
+		sconn.Close()
 	}()
 	// server
 	for {
@@ -322,6 +322,7 @@ func TestTransportClose(t *testing.T) {
 			break
 		}
 	}
+	t.Log("final wait")
 	wg.Wait()
 }
 
