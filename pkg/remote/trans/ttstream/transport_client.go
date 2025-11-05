@@ -19,6 +19,7 @@ package ttstream
 import (
 	"context"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -40,9 +41,11 @@ import (
 var ticker = utils.NewSyncSharedTicker(5 * time.Second)
 
 type clientTransport struct {
-	conn          netpoll.Connection
-	pool          transPool
-	stream        atomic.Pointer[clientStream]
+	conn   netpoll.Connection
+	pool   transPool
+	stream atomic.Pointer[clientStream]
+	// protect writer
+	mu            sync.Mutex
 	writer        *writerBuffer
 	closedFlag    int32
 	closedTrigger chan struct{}
@@ -148,8 +151,6 @@ func (t *clientTransport) readFrame(reader bufiox.Reader) error {
 	s, ok = t.loadStream(fr.sid)
 	if !ok {
 		klog.Debugf("transport[%s] read a unknown stream: frame[%s]", t.Addr(), fr)
-		// ignore unknown stream error
-		err = nil
 	} else {
 		// process different frames
 		switch fr.typ {
@@ -185,12 +186,21 @@ func (t *clientTransport) loopRead() error {
 }
 
 // WriteFrame is not concurrent safe
+// If WriteFrame returns non-nil err, the clientTransport would be closed
 func (t *clientTransport) WriteFrame(fr *Frame) (err error) {
+	// todo: optimize performance
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if err = EncodeFrame(context.Background(), t.writer, fr); err != nil {
+		t.Close(err)
 		return err
 	}
 	recycleFrame(fr)
-	return t.writer.Flush()
+	if err = t.writer.Flush(); err != nil {
+		t.Close(err)
+		return err
+	}
+	return nil
 }
 
 func (t *clientTransport) CloseStream(sid int32) (err error) {

@@ -173,6 +173,7 @@ func (s *clientStream) close(exception error, sendRst bool, cancelPath string) {
 		// stream has been closed before
 		return
 	}
+	// todo: 优化这部分逻辑，统一收敛到 header, trailer 处理部分
 	select {
 	case s.headerSig <- streamSigInactive:
 	default:
