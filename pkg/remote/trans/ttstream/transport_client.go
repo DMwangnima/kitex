@@ -190,14 +190,17 @@ func (t *clientTransport) loopRead() error {
 func (t *clientTransport) WriteFrame(fr *Frame) (err error) {
 	// todo: optimize performance
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	defer func() {
+		t.mu.Unlock()
+		if err != nil {
+			t.Close(err)
+		}
+	}()
 	if err = EncodeFrame(context.Background(), t.writer, fr); err != nil {
-		t.Close(err)
 		return err
 	}
 	recycleFrame(fr)
 	if err = t.writer.Flush(); err != nil {
-		t.Close(err)
 		return err
 	}
 	return nil

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 
 	"github.com/cloudwego/gopkg/bufiox"
@@ -35,6 +36,9 @@ import (
 type serverTransport struct {
 	conn   netpoll.Connection
 	stream atomic.Pointer[serverStream]
+	// mu protects writer
+	// todo: optimize performance
+	mu     sync.Mutex
 	writer *writerBuffer
 	// transport should operate directly on stream
 	scache        []*serverStream                // size is streamCacheSize
@@ -141,6 +145,10 @@ func (t *serverTransport) readFrame(reader bufiox.Reader) error {
 		s = newServerStream(ctx, t, fr.streamFrame)
 		s.cancelFunc = cFunc
 		t.storeStream(s)
+		// todo: 如果能确保一个连接就是被一个 stream 独占的，那么这里不用那么麻烦，直接通知即可
+		// 是否可能存在新的 stream 开始了，但是连接上继续收到了上一个 stream 的情况？
+		// 这里需要确保一个流的生命周期结束后，连接才能被分配给下一个流
+		// 此处需要做防御性编程，确保一个连接只被一个 Stream 占据
 		err = t.spipe.Write(context.Background(), s)
 	} else {
 		// load exist stream
@@ -184,11 +192,22 @@ func (t *serverTransport) loopRead() error {
 
 // WriteFrame is concurrent safe
 func (t *serverTransport) WriteFrame(fr *Frame) (err error) {
+	// todo: optimize performance
+	t.mu.Lock()
+	defer func() {
+		t.mu.Unlock()
+		if err != nil {
+			t.Close(err)
+		}
+	}()
 	if err = EncodeFrame(context.Background(), t.writer, fr); err != nil {
 		return err
 	}
 	recycleFrame(fr)
-	return t.writer.Flush()
+	if err = t.writer.Flush(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (t *serverTransport) CloseStream(sid int32) (err error) {

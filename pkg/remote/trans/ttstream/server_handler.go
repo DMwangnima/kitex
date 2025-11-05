@@ -126,24 +126,21 @@ func (t *svrTransHandler) OnActive(ctx context.Context, conn net.Conn) (context.
 // OnRead control the connection level lifecycle.
 // only when OnRead return, netpoll can close the connection buffer
 func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) (err error) {
+	trans, _ := ctx.Value(serverTransCtxKey{}).(*serverTransport)
+	if trans == nil {
+		err = fmt.Errorf("server transport is nil")
+		return
+	}
 	var wg sync.WaitGroup
 	defer func() {
 		wg.Wait()
-		trans, _ := ctx.Value(serverTransCtxKey{}).(*serverTransport)
-		if trans != nil {
-			trans.WaitClosed()
-		}
+		trans.WaitClosed()
 		if errors.Is(err, io.EOF) {
 			err = nil
 		}
 	}()
 	// connection level goroutine
 	for {
-		trans, _ := ctx.Value(serverTransCtxKey{}).(*serverTransport)
-		if trans == nil {
-			err = fmt.Errorf("server transport is nil")
-			return
-		}
 		var st *serverStream
 		// ReadStream will block until a stream coming or conn return error
 		st, err = trans.ReadStream(ctx)
