@@ -94,15 +94,22 @@ func (t *svrTransHandler) SetInvokeHandleFunc(inkHdlFunc endpoint.Endpoint) {
 }
 
 func (t *svrTransHandler) ProtocolMatch(ctx context.Context, conn net.Conn) (err error) {
-	nconn, ok := conn.(netpoll.Connection)
-	if !ok {
-		return errProtocolNotMatch
+	var preface []byte
+	if nconn, ok := conn.(netpoll.Connection); ok {
+		preface, err = nconn.Reader().Peek(8)
+		if err != nil {
+			return fmt.Errorf("netpoll.Connection Peek failed, err: %v", err)
+		}
+	} else if peeker, ok := conn.(remote.ConnPeeker); ok {
+		preface, err = peeker.Peek(8)
+		if err != nil {
+			return fmt.Errorf("remote.ConnPeeker Peek failed, err: %v", err)
+		}
+	} else {
+		return fmt.Errorf("conn type not match: %T", conn)
 	}
-	data, err := nconn.Reader().Peek(8)
-	if err != nil {
-		return errProtocolNotMatch
-	}
-	if !ttheader.IsStreaming(data) {
+
+	if !ttheader.IsStreaming(preface) {
 		return errProtocolNotMatch
 	}
 	return nil

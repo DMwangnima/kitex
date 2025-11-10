@@ -34,3 +34,8 @@ type TransServer interface {
 	Shutdown() error
 	ConnCount() utils.AtomicInt
 }
+
+// ConnPeeker is the ability to Peek for connection
+type ConnPeeker interface {
+	Peek(n int) ([]byte, error)
+}
