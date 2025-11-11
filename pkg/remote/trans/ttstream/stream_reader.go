@@ -20,10 +20,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream/container"
 )
+
+var streamReaderPool sync.Pool
 
 // streamReader is an abstraction layer for stream level IO operations
 type streamReader struct {
@@ -38,15 +41,37 @@ type streamMsg struct {
 }
 
 func newStreamReader() *streamReader {
-	sio := new(streamReader)
+	var sio *streamReader
+	if v := streamReaderPool.Get(); v != nil {
+		sio = v.(*streamReader)
+		sio.exception = nil // reset state
+	} else {
+		sio = new(streamReader)
+	}
 	sio.pipe = container.NewPipe[streamMsg]()
 	return sio
 }
 
 func newStreamReaderWithCtxDoneCallback(callback container.CtxDoneCallback) *streamReader {
-	sio := new(streamReader)
+	var sio *streamReader
+	if v := streamReaderPool.Get(); v != nil {
+		sio = v.(*streamReader)
+		sio.exception = nil // reset state
+	} else {
+		sio = new(streamReader)
+	}
 	sio.pipe = container.NewPipe[streamMsg](container.WithCtxDoneCallback(callback))
 	return sio
+}
+
+func recycleStreamReader(sio *streamReader) {
+	if sio == nil {
+		return
+	}
+	// Clear references to help GC
+	sio.pipe = nil
+	sio.exception = nil
+	streamReaderPool.Put(sio)
 }
 
 func (s *streamReader) input(ctx context.Context, payload []byte) {
@@ -90,4 +115,8 @@ func (s *streamReader) close(exception error) {
 		_ = s.pipe.Write(context.Background(), streamMsg{exception: exception})
 	}
 	s.pipe.Close()
+	// Clear callback to avoid closure captures preventing GC (similar to grpc fix #1886)
+	s.pipe.ClearCallback()
+	// Note: We don't recycle streamReader here because the stream may still hold a reference
+	// The streamReader will be GC'd when the stream is GC'd
 }

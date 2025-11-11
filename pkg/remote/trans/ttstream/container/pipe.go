@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 )
 
@@ -44,10 +45,11 @@ type CtxDoneCallback func(ctx context.Context)
 
 // Pipe implement a queue that never block on Write but block on Read if there is nothing to read
 type Pipe[Item any] struct {
-	queue    *Queue[Item]
-	state    pipeState
-	trigger  chan struct{}
-	callback CtxDoneCallback
+	queue        *Queue[Item]
+	state        pipeState
+	trigger      chan struct{}
+	callback     CtxDoneCallback
+	callbackOnce sync.Once // ensures callback is cleared only once
 }
 
 func NewPipe[Item any](opts ...PipeOption) *Pipe[Item] {
@@ -137,6 +139,15 @@ func (p *Pipe[Item]) Cancel() {
 	case p.trigger <- struct{}{}:
 	default:
 	}
+}
+
+// ClearCallback clears the context done callback to avoid closure captures
+// This should be called when the pipe is no longer needed to allow GC
+// This method is thread-safe and idempotent (safe to call multiple times)
+func (p *Pipe[Item]) ClearCallback() {
+	p.callbackOnce.Do(func() {
+		p.callback = nil
+	})
 }
 
 type PipeOptions struct {

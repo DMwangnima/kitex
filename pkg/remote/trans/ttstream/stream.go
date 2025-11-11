@@ -46,8 +46,8 @@ func newBasicStream(ctx context.Context, writer streamWriter, smeta streamFrame)
 	s.rpcInfo = rpcinfo.GetRPCInfo(ctx)
 	s.streamFrame = smeta
 	s.writer = writer
-	s.wheader = make(streaming.Header)
-	s.wtrailer = make(streaming.Trailer)
+	// Lazy initialization: allocate wheader and wtrailer only when needed
+	// This avoids unnecessary allocations for streams that don't send headers/trailers
 	return s
 }
 
@@ -74,6 +74,11 @@ const (
 	streamStateInactive        int32 = 3
 )
 
+const (
+	streamFlagHeaderSent uint8 = 1 << iota
+	streamFlagTrailerSent
+)
+
 // stream is used to process frames and expose user APIs
 type stream struct {
 	streamFrame
@@ -81,11 +86,12 @@ type stream struct {
 	rpcInfo  rpcinfo.RPCInfo
 	reader   *streamReader
 	writer   streamWriter
-	wheader  streaming.Header  // wheader == nil means it already be sent
-	wtrailer streaming.Trailer // wtrailer == nil means it already be sent
+	wheader  streaming.Header  // lazily initialized on first SetHeader/writeHeader call
+	wtrailer streaming.Trailer // lazily initialized on first SetTrailer/writeTrailer call
 
 	recvTimeout   time.Duration
 	closeCallback []func(error)
+	flags         uint8 // tracks if header/trailer have been sent
 }
 
 func (s *stream) Service() string {
@@ -177,11 +183,17 @@ func (s *stream) writeFrame(ftype int32, header streaming.Header, trailer stream
 // writeTrailer send trailer to peer
 // if exception is not nil, trailer frame should carry a payload
 func (s *stream) sendTrailer(exception error) (err error) {
-	wtrailer := s.wtrailer
-	s.wtrailer = nil
-	if wtrailer == nil {
+	// Check if trailer was already sent using flag
+	if s.flags&streamFlagTrailerSent != 0 {
 		return fmt.Errorf("stream trailer already sent")
 	}
+
+	// Mark as sent
+	s.flags |= streamFlagTrailerSent
+
+	wtrailer := s.wtrailer
+	// Clear for GC (optional, helps reduce memory footprint)
+	s.wtrailer = nil
 
 	var payload []byte
 	if exception != nil {

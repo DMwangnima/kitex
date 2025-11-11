@@ -199,6 +199,7 @@ func (t *clientTransport) readFrame(reader bufiox.Reader) error {
 
 func (t *clientTransport) loopRead() error {
 	reader := newReaderBuffer(t.conn.Reader())
+	defer recycleReaderBuffer(reader)
 	for {
 		err := t.readFrame(reader)
 		// judge whether it is connection-level error
@@ -210,11 +211,12 @@ func (t *clientTransport) loopRead() error {
 }
 
 func (t *clientTransport) loopWrite() error {
+	writer := newWriterBuffer(t.conn.Writer())
 	defer func() {
+		recycleWriterBuffer(writer)
 		// loop write should help to close connection
 		_ = t.conn.Close()
 	}()
-	writer := newWriterBuffer(t.conn.Writer())
 	fcache := make([]*Frame, frameCacheSize)
 	// Important note:
 	// loopWrite may cannot find stream by sid since it may send trailer and delete sid from streams

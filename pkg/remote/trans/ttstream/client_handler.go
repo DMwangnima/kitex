@@ -65,11 +65,14 @@ func (c clientTransHandler) NewStream(ctx context.Context, ri rpcinfo.RPCInfo) (
 			return nil, err
 		}
 	}
+	// Lazy initialization: only allocate if nil
+	// This avoids double allocation when headerHandler returns non-nil empty maps
 	if intHeader == nil {
 		intHeader = IntHeader{}
 	}
 	if strHeader == nil {
-		strHeader = map[string]string{}
+		// Pre-allocate with capacity for common headers to reduce reallocations
+		strHeader = make(map[string]string, 2)
 	}
 	strHeader[ttheader.HeaderIDLServiceName] = invocation.ServiceName()
 	metainfo.SaveMetaInfoToMap(ctx, strHeader)

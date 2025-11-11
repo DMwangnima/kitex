@@ -46,6 +46,15 @@ func newReaderBuffer(reader netpoll.Reader) (rb *readerBuffer) {
 	return rb
 }
 
+func recycleReaderBuffer(rb *readerBuffer) {
+	if rb == nil {
+		return
+	}
+	rb.reader = nil
+	rb.readSize = 0
+	readerBufferPool.Put(rb)
+}
+
 type readerBuffer struct {
 	reader   netpoll.Reader
 	readSize int
@@ -99,6 +108,15 @@ func newWriterBuffer(writer netpoll.Writer) (wb *writerBuffer) {
 	wb.writer = writer
 	wb.writeSize = 0
 	return wb
+}
+
+func recycleWriterBuffer(wb *writerBuffer) {
+	if wb == nil {
+		return
+	}
+	wb.writer = nil
+	wb.writeSize = 0
+	writerBufferPool.Put(wb)
 }
 
 type writerBuffer struct {

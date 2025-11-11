@@ -66,8 +66,12 @@ func (s *serverStream) SendHeader(hd streaming.Header) error {
 
 // writeHeader copy kvs into s.wheader
 func (s *serverStream) writeHeader(hd streaming.Header) error {
-	if s.wheader == nil {
+	if s.flags&streamFlagHeaderSent != 0 {
 		return fmt.Errorf("stream header already sent")
+	}
+	// Lazy initialization: allocate only when first header is set
+	if s.wheader == nil {
+		s.wheader = make(streaming.Header)
 	}
 	for k, v := range hd {
 		s.wheader[k] = v
@@ -77,11 +81,15 @@ func (s *serverStream) writeHeader(hd streaming.Header) error {
 
 // sendHeader send header to peer
 func (s *serverStream) sendHeader() (err error) {
-	wheader := s.wheader
-	s.wheader = nil
-	if wheader == nil {
+	if s.flags&streamFlagHeaderSent != 0 {
 		return fmt.Errorf("stream header already sent")
 	}
+	// Mark as sent
+	s.flags |= streamFlagHeaderSent
+
+	wheader := s.wheader
+	// Clear for GC
+	s.wheader = nil
 	err = s.writeFrame(headerFrameType, wheader, nil, nil)
 	return err
 }
@@ -92,8 +100,12 @@ func (s *serverStream) SetTrailer(tl streaming.Trailer) error {
 
 // writeTrailer write trailer to peer
 func (s *serverStream) writeTrailer(tl streaming.Trailer) (err error) {
-	if s.wtrailer == nil {
+	if s.flags&streamFlagTrailerSent != 0 {
 		return fmt.Errorf("stream trailer already sent")
+	}
+	// Lazy initialization: allocate only when first trailer is set
+	if s.wtrailer == nil {
+		s.wtrailer = make(streaming.Trailer)
 	}
 	for k, v := range tl {
 		s.wtrailer[k] = v

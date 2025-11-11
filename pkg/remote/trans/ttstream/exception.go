@@ -18,7 +18,6 @@ package ttstream
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/cloudwego/kitex/pkg/kerrors"
@@ -62,7 +61,8 @@ type Exception struct {
 	// when cause is set, replace message to cause.Error() when displaying error information
 	cause error
 
-	bitSet uint8
+	bitSet       uint8
+	cachedErrStr string // cached error string to avoid repeated allocations
 }
 
 func newException(message string, parent error, typeId int32) *Exception {
@@ -77,8 +77,20 @@ func (e *Exception) newBuilder() *Exception {
 }
 
 func (e *Exception) Error() string {
+	// Return cached error string if available
+	if e.cachedErrStr != "" {
+		return e.cachedErrStr
+	}
+
+	// Build error string with optimized allocations
 	var strBuilder strings.Builder
-	strBuilder.WriteString(fmt.Sprintf("[ttstream error, code=%d] ", e.typeId))
+	// Pre-allocate estimated capacity to avoid reallocations
+	strBuilder.Grow(128)
+
+	// Avoid fmt.Sprintf, use WriteString directly
+	strBuilder.WriteString("[ttstream error, code=")
+	strBuilder.WriteString(itoa(int(e.typeId)))
+	strBuilder.WriteString("] ")
 
 	if e.isSideSet() {
 		switch e.side {
@@ -101,7 +113,32 @@ func (e *Exception) Error() string {
 		strBuilder.WriteString(e.message)
 	}
 
-	return strBuilder.String()
+	// Cache the result
+	e.cachedErrStr = strBuilder.String()
+	return e.cachedErrStr
+}
+
+// itoa is a simple integer to string conversion to avoid fmt.Sprintf
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	pos := len(buf)
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	for i > 0 {
+		pos--
+		buf[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		pos--
+		buf[pos] = '-'
+	}
+	return string(buf[pos:])
 }
 
 func (e *Exception) withCause(cause error) *Exception {
@@ -164,7 +201,13 @@ func (e *Exception) TypeId() int32 {
 // appendCancelPath is a common util func to process cancelPath metadata in Rst Frame and Exception
 func appendCancelPath(oriCp, node string) string {
 	if len(oriCp) > 0 {
-		return strings.Join([]string{oriCp, node}, ",")
+		// Avoid strings.Join allocation, use strings.Builder instead
+		var buf strings.Builder
+		buf.Grow(len(oriCp) + len(node) + 1)
+		buf.WriteString(oriCp)
+		buf.WriteByte(',')
+		buf.WriteString(node)
+		return buf.String()
 	}
 	return node
 }

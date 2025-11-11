@@ -17,7 +17,6 @@
 package container
 
 import (
-	"runtime"
 	"sync"
 	"sync/atomic"
 )
@@ -28,23 +27,21 @@ func NewQueue[ValueType any]() *Queue[ValueType] {
 
 // Queue implement a concurrent-safe queue
 type Queue[ValueType any] struct {
-	head   *linkNode[ValueType] // head will be protected by Locker
-	tail   *linkNode[ValueType] // tail will be protected by Locker
-	read   *linkNode[ValueType] // read can only access by func Get()
-	safety int32
-	size   int32
+	head *linkNode[ValueType] // head will be protected by Locker
+	tail *linkNode[ValueType] // tail will be protected by Locker
+	read *linkNode[ValueType] // read can only access by func Get()
+	mu   sync.Mutex           // replaced spinlock with mutex for better performance under contention
+	size int32
 
 	nodePool sync.Pool
 }
 
 func (q *Queue[ValueType]) lock() {
-	for !atomic.CompareAndSwapInt32(&q.safety, 0, 1) {
-		runtime.Gosched()
-	}
+	q.mu.Lock()
 }
 
 func (q *Queue[ValueType]) unlock() {
-	atomic.StoreInt32(&q.safety, 0)
+	q.mu.Unlock()
 }
 
 func (q *Queue[ValueType]) Size() int {
