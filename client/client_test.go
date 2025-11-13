@@ -1139,6 +1139,9 @@ func Test_kClient_initMiddlewares(t *testing.T) {
 		opt: &client.Options{
 			TracerCtl: ctl,
 			Streaming: internal_stream.StreamingConfig{},
+			RemoteOpt: &remote.ClientOption{
+				ConnPool: nil,
+			},
 		},
 	}
 	c.initMiddlewares(context.Background())

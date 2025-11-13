@@ -1311,6 +1311,12 @@ func (t *http2Client) IsActive() bool {
 	return t.state == reachable
 }
 
+func (t *http2Client) ActiveStreams() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.activeStreams)
+}
+
 func (t *http2Client) Dump() interface{} {
 	t.mu.Lock()
 	// sort the stream using streamID

@@ -300,12 +300,14 @@ func (kc *kClient) initMiddlewares(ctx context.Context) (mw middleware) {
 	mw.mws = append(mw.mws, builderMWs...)
 	mw.mws = append(mw.mws, acl.NewACLMiddleware(kc.opt.ACLRules))
 	if kc.opt.Proxy == nil {
-		mw.mws = append(mw.mws, newResolveMWBuilder(kc.lbf)(ctx))
+		cs, _ := kc.opt.RemoteOpt.ConnPool.(remote.ConnStatistics)
+		mw.mws = append(mw.mws, newResolveMWBuilder(kc.lbf, cs)(ctx))
 		mw.mws = append(mw.mws, kc.opt.CBSuite.InstanceCBMW())
 		mw.mws = append(mw.mws, richMWsWithBuilder(ctx, kc.opt.IMWBs)...)
 	} else {
+		cs, _ := kc.opt.RemoteOpt.ConnPool.(remote.ConnStatistics)
 		if kc.opt.Resolver != nil { // customized service discovery
-			mw.mws = append(mw.mws, newResolveMWBuilder(kc.lbf)(ctx))
+			mw.mws = append(mw.mws, newResolveMWBuilder(kc.lbf, cs)(ctx))
 		}
 		mw.mws = append(mw.mws, newProxyMW(kc.opt.Proxy))
 	}
