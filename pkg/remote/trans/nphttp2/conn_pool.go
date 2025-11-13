@@ -22,6 +22,7 @@ import (
 	"net"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -212,6 +213,12 @@ func (p *connPool) Put(conn net.Conn) error {
 func (p *connPool) ActiveStreams(addr string) int {
 	v, ok := p.conns.Load(addr)
 	if !ok {
+		var sb strings.Builder
+		p.conns.Range(func(key, value any) bool {
+			sb.WriteString(key.(string) + "\n")
+			return true
+		})
+		klog.Warnf("KITEX: addr %s does not exist, all addrs: %s", addr, sb.String())
 		return 0
 	}
 	trans := v.(*transports)
