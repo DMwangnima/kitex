@@ -21,6 +21,7 @@ import (
 	"math"
 
 	"github.com/cloudwego/kitex/pkg/discovery"
+	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/remote"
 )
 
@@ -48,12 +49,16 @@ func (p *weightedLeastConnPicker) Next(ctx context.Context, request interface{})
 		if weight <= 0 {
 			weight = 1
 		}
-		load := float64(cs.ActiveStreams(tmpIns.Address().String())) / float64(weight)
+		addr := tmpIns.Address().String()
+		activeStreams := cs.ActiveStreams(addr)
+		load := float64(activeStreams) / float64(weight)
+		klog.CtxWarnf(ctx, "KITEX: instance iterate: %s, activeStreams: %d, load: %.2f", addr, activeStreams, load)
 		if load < minNormalizedLoad {
 			minNormalizedLoad = load
 			ins = p.instances[i]
 		}
 	}
+	klog.CtxWarnf(ctx, "KITEX: instance pick: %s, all instances: %+v", ins.Address(), p.instances)
 	return ins
 }
 
