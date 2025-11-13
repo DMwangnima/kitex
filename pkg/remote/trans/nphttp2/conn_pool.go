@@ -66,17 +66,22 @@ type connPool struct {
 type transports struct {
 	index         uint32
 	size          uint32
+	mu            sync.RWMutex
 	cliTransports []grpc.ClientTransport
 }
 
 // get connection from the pool, load balance with round-robin.
 func (t *transports) get() grpc.ClientTransport {
 	idx := atomic.AddUint32(&t.index, 1)
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return t.cliTransports[idx%t.size]
 }
 
 // put find the first empty position to put the connection to the pool.
 func (t *transports) put(trans grpc.ClientTransport) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	for i := 0; i < int(t.size); i++ {
 		cliTransport := t.cliTransports[i]
 		if cliTransport == nil {
@@ -89,6 +94,18 @@ func (t *transports) put(trans grpc.ClientTransport) {
 			return
 		}
 	}
+}
+
+func (t *transports) activeNums(addr string) int {
+	var num int
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	for i := 0; i < int(t.size); i++ {
+		if trans := t.cliTransports[i]; trans != nil {
+			num += trans.ActiveStreams(addr)
+		}
+	}
+	return num
 }
 
 // close all connections of the pool.
@@ -190,6 +207,15 @@ func (p *connPool) Put(conn net.Conn) error {
 		return p.release(conn)
 	}
 	return nil
+}
+
+func (p *connPool) ActiveStreams(addr string) (num int) {
+	p.conns.Range(func(key, value any) bool {
+		trans := value.(*transports)
+		num += trans.activeNums(addr)
+		return true
+	})
+	return
 }
 
 func (p *connPool) release(conn net.Conn) error {

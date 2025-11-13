@@ -290,6 +290,7 @@ type Stream struct {
 	closeStreamErr atomic.Value
 	// sourceService is the source service name of this stream
 	sourceService string
+	tag           string
 }
 
 // isHeaderSent is only valid on the server-side.
@@ -681,6 +682,8 @@ type CallHdr struct {
 	ContentSubtype string
 
 	PreviousAttempts int // value of grpc-previous-rpc-attempts header to set
+
+	Tag string
 }
 
 // IsActive is the interface that exposing the underlying connection's active status.
@@ -734,6 +737,8 @@ type ClientTransport interface {
 	// RemoteAddr returns the remote network address.
 	RemoteAddr() net.Addr
 	LocalAddr() net.Addr
+
+	ActiveStreams(tag string) int
 }
 
 // ServerTransport is the common interface for all gRPC server-side transport
