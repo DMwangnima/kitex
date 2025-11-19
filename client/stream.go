@@ -33,6 +33,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/serviceinfo"
 	"github.com/cloudwego/kitex/pkg/stats"
 	"github.com/cloudwego/kitex/pkg/streaming"
+	"github.com/cloudwego/kitex/transport"
 )
 
 // Streaming client streaming interface for code generate
@@ -303,10 +304,30 @@ func (s *stream) DoFinish(err error) {
 		// already called
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			// todo: 记录堆栈
+		}
+	}()
 	if !isRPCError(err) {
 		// only rpc errors are reported
 		err = nil
 	}
+	// todo: 考虑是否需要提供一个默认的
+	riCfg := s.ri.Config()
+	stCfg := riCfg.StreamCallbackConfig()
+	tp := riCfg.TransportProtocol()
+	switch {
+	// 此处应该提前判断过了，不需要重复判断
+	case tp&transport.GRPC != 0:
+		err = processGRPC(s.ctx, s.ri, err, stCfg)
+	case tp&transport.TTHeaderStreaming != 0:
+		err = processTTStream(s.ctx, err, stCfg)
+	default:
+		// todo: 打印错误日志
+		// return fmt.Errorf("not supported protocol: %s", tp.String())
+	}
+
 	if s.scm != nil {
 		s.scm.ReleaseConn(err, s.ri)
 	}

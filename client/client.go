@@ -827,6 +827,9 @@ func initRPCInfo(ctx context.Context, method string, opt *client.Options, svcInf
 	if sopt.RecvTimeout > 0 {
 		cfg.SetStreamRecvTimeout(sopt.RecvTimeout)
 	}
+	if sopt.StreamCallbackConfig != nil {
+		cfg.SetStreamCallbackConfig(sopt.StreamCallbackConfig)
+	}
 
 	ctx = rpcinfo.NewCtxWithRPCInfo(ctx, ri)
 

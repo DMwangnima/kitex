@@ -17,10 +17,12 @@
 package streamcall
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/kitex/client/callopt"
+	"github.com/cloudwego/kitex/pkg/streaming"
 )
 
 // These options are directly translated from callopt.Option(s). If you can't find the option with the
@@ -56,5 +58,48 @@ func WithRecvTimeout(d time.Duration) Option {
 		di.WriteString(")")
 
 		o.StreamOptions.RecvTimeout = d
+	}}
+}
+
+//// WithSendTimeout add send timeout for stream.Send function.
+//func WithSendTimeout(d time.Duration) Option {
+//	return Option{f: func(o *callopt.CallOptions, di *strings.Builder) {
+//		di.WriteString("WithSendTimeout(")
+//		di.WriteString(d.String())
+//		di.WriteString(")")
+//
+//		o.StreamOptions.SendTimeout = d
+//	}}
+//}
+//
+//func WithStreamTimeout(d time.Duration) Option {
+//	return Option{f: func(o *callopt.CallOptions, di *strings.Builder) {
+//		di.WriteString("WithStreamTimeout(")
+//		di.WriteString(d.String())
+//		di.WriteString(")")
+//
+//		o.StreamOptions.StreamTimeout = d
+//	}}
+//}
+
+func WithIndependentLifecycle(flag bool) Option {
+	return Option{f: func(o *callopt.CallOptions, di *strings.Builder) {
+		di.WriteString("WithIndependentLifecycle(")
+		if flag {
+			di.WriteString("true")
+		} else {
+			di.WriteString("false")
+		}
+		di.WriteString(")")
+
+		o.StreamOptions.IndependentLifecycle = flag
+	}}
+}
+
+func WithCallbackConfig(cfg *streaming.StreamCallbackConfig) Option {
+	return Option{f: func(o *callopt.CallOptions, di *strings.Builder) {
+		di.WriteString(fmt.Sprintf("WithStreamCallbackConfig(%+v)", cfg))
+
+		o.StreamOptions.StreamCallbackConfig = cfg
 	}}
 }

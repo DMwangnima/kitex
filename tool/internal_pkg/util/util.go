@@ -47,6 +47,32 @@ func (ss *StringSlice) Set(value string) error {
 	return nil
 }
 
+// OptionalString implements the flag.Value and flag.boolFlag interfaces to
+// allow a flag to support both bool and string semantics.
+// for example, support both kitex -key and kitex -key=val styles
+type OptionalString struct {
+	val   string
+	isSet bool
+}
+
+func (o *OptionalString) IsSet() bool {
+	return o.isSet
+}
+
+func (o *OptionalString) String() string {
+	return o.val
+}
+
+func (o *OptionalString) Set(str string) error {
+	o.val = str
+	o.isSet = true
+	return nil
+}
+
+func (o *OptionalString) IsBoolFlag() bool {
+	return true
+}
+
 // FormatCode formats go source codes.
 func FormatCode(code []byte) ([]byte, error) {
 	formatCode, err := format.Source(code)
