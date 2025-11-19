@@ -105,6 +105,7 @@ func (t *transports) activeNums(addr string) int {
 			num += trans.ActiveStreams(addr)
 		}
 	}
+	klog.Warnf("KITEX: addr with %s", addr)
 	return num
 }
 

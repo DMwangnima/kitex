@@ -1334,6 +1334,7 @@ func (t *http2Client) ActiveStreams(tag string) int {
 	// Use index if available (normal case), otherwise fall back to iteration (for tests)
 	if t.streamsByTag != nil {
 		num = t.streamsByTag[tag]
+		klog.Warnf("KITEX: streamsByTag: %+v", t.streamsByTag)
 	}
 	if num < 0 {
 		num = 0
