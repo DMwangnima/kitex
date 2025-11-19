@@ -19,6 +19,7 @@ package loadbalance
 import (
 	"context"
 	"math"
+	"sync/atomic"
 
 	"github.com/cloudwego/kitex/pkg/discovery"
 	"github.com/cloudwego/kitex/pkg/klog"
@@ -28,6 +29,7 @@ import (
 type weightedLeastConnPicker struct {
 	pingPongPicker Picker
 	instances      []discovery.Instance
+	index          uint32
 }
 
 func (p *weightedLeastConnPicker) Next(ctx context.Context, request interface{}) (ins discovery.Instance) {
@@ -43,6 +45,7 @@ func (p *weightedLeastConnPicker) Next(ctx context.Context, request interface{})
 	minNormalizedLoad := math.MaxFloat64
 	ins = p.instances[0]
 
+	var hasActiveStreams bool
 	for i := 0; i < len(p.instances); i++ {
 		tmpIns := p.instances[i]
 		weight := tmpIns.Weight()
@@ -51,12 +54,20 @@ func (p *weightedLeastConnPicker) Next(ctx context.Context, request interface{})
 		}
 		addr := tmpIns.Address().String()
 		activeStreams := cs.ActiveStreams(addr)
+		if activeStreams > 0 {
+			hasActiveStreams = true
+		}
 		load := float64(activeStreams) / float64(weight)
 		klog.CtxWarnf(ctx, "KITEX: instance iterate: %s, activeStreams: %d, load: %.2f", addr, activeStreams, load)
 		if load < minNormalizedLoad {
 			minNormalizedLoad = load
 			ins = p.instances[i]
 		}
+	}
+	// all activeStreams of instances are 0, using round robin
+	if !hasActiveStreams {
+		idx := atomic.AddUint32(&p.index, 1)
+		ins = p.instances[idx%uint32(len(p.instances))]
 	}
 	klog.CtxWarnf(ctx, "KITEX: instance pick: %s, all instances: %+v", ins.Address(), p.instances)
 	return ins
