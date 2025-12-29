@@ -164,6 +164,10 @@ func (r *rpcStats) Record(ctx context.Context, e stats.Event, status stats.Statu
 //
 // It's only used by ReportStreamEvent
 func NewEvent(statsEvent stats.Event, status stats.Status, info string) Event {
+	return newEvent(statsEvent, status, info)
+}
+
+func newEvent(statsEvent stats.Event, status stats.Status, info string) *event {
 	eve := eventPool.Get().(*event)
 	eve.event = statsEvent
 	eve.status = status

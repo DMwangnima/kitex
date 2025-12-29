@@ -67,6 +67,8 @@ type clientStream struct {
 	// for Header()/Trailer()
 	headerSig  chan int32
 	trailerSig chan int32
+
+	traceCtl *rpcinfo.TraceController
 }
 
 func (s *clientStream) Header() (streaming.Header, error) {
@@ -182,6 +184,11 @@ func (s *clientStream) close(exception error, sendRst bool, cancelPath string) {
 	case s.trailerSig <- streamSigInactive:
 	default:
 	}
+
+	// todo: inject Trailer
+	// reportStreamFinishEvent should be invoked before runCloseCallback
+	// since tracer would be finished in runCloseCallback
+	s.reportStreamFinishEvent(rpcinfo.StreamFinishEvent{})
 	// clientStream.Recv would get the exception
 	s.reader.close(exception)
 	if sendRst {
@@ -203,6 +210,17 @@ func (s *clientStream) close(exception error, sendRst bool, cancelPath string) {
 
 func (s *clientStream) setMetaFrameHandler(metaHandler MetaFrameHandler) {
 	s.metaFrameHandler = metaHandler
+}
+
+func (s *clientStream) setTraceController(traceCtl *rpcinfo.TraceController) {
+	s.traceCtl = traceCtl
+}
+
+func (s *clientStream) reportStreamFinishEvent(event rpcinfo.StreamFinishEvent) {
+	if s.traceCtl == nil {
+		return
+	}
+	s.traceCtl.ReportStreamFinishEvent(s.ctx, s.rpcInfo, event)
 }
 
 // === clientStream OnRead callback

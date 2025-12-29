@@ -18,11 +18,13 @@ package nphttp2
 
 import (
 	"context"
-	"net"
 
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/codes"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/metadata"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/status"
+	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	"github.com/cloudwego/kitex/pkg/serviceinfo"
+	"github.com/cloudwego/kitex/pkg/stats"
 	"github.com/cloudwego/kitex/pkg/streaming"
 )
 
@@ -131,25 +133,41 @@ func GetTrailerMetadataFromCtx(ctx context.Context) *metadata.MD {
 	return nil
 }
 
-// set header and trailer to the ctx by default.
-func receiveHeaderAndTrailer(ctx context.Context, conn net.Conn) context.Context {
-	if md, err := conn.(hasHeader).Header(); err == nil {
-		if h := ctx.Value(headerKey{}); h != nil {
-			// If using GRPCHeader(), set the value directly
-			hd := h.(*metadata.MD)
-			*hd = md
-		} else {
-			ctx = context.WithValue(ctx, headerKey{}, &md)
-		}
+// unaryMetaRetriever is used to process Header and Trailer retrieving for gRPC unary invocation
+type unaryMetaRetriever struct{}
+
+func (u unaryMetaRetriever) Start(ctx context.Context) context.Context {
+	return ctx
+}
+
+func (u unaryMetaRetriever) Finish(ctx context.Context) {}
+
+func (u unaryMetaRetriever) ReportStreamEvent(ctx context.Context, ri rpcinfo.RPCInfo, event rpcinfo.Event) {
+	// only available on unary invocation
+	if mode := ri.Invocation().StreamingMode(); mode != serviceinfo.StreamingNone && mode != serviceinfo.StreamingUnary {
+		return
 	}
-	if md := conn.(hasTrailer).Trailer(); md != nil {
-		if t := ctx.Value(trailerKey{}); t != nil {
+
+	switch event.Event() {
+	case stats.StreamRecvHeader:
+		h := ctx.Value(headerKey{})
+		if h == nil {
+			return
+		}
+		evt := event.(rpcinfo.StreamRecvHeaderEvent)
+		// If using GRPCHeader(), set the value directly
+		hd := h.(*metadata.MD)
+		*hd = evt.Header
+	case stats.StreamFinish:
+		t := ctx.Value(trailerKey{})
+		if t == nil {
+			return
+		}
+		evt := event.(rpcinfo.StreamFinishEvent)
+		if evt.Trailer != nil {
 			// If using GRPCTrailer(), set the value directly
 			tr := t.(*metadata.MD)
-			*tr = md
-		} else {
-			ctx = context.WithValue(ctx, trailerKey{}, &md)
+			*tr = evt.Trailer
 		}
 	}
-	return ctx
 }

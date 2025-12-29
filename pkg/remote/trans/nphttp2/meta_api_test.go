@@ -19,9 +19,13 @@ package nphttp2
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/kitex/internal/test"
+	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/metadata"
+	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	"github.com/cloudwego/kitex/pkg/serviceinfo"
 )
 
 func TestGetTrailerMetadataFromCtx(t *testing.T) {
@@ -48,4 +52,123 @@ func TestGetHeaderMetadataFromCtx(t *testing.T) {
 	// failure
 	m2 := GetHeaderMetadataFromCtx(context.Background())
 	test.Assert(t, m2 == nil)
+}
+
+func Test_unaryMetaTracer(t *testing.T) {
+	ctl := &rpcinfo.TraceController{}
+	opt := newMockClientOption(ctl)
+	// streaming none
+	ctx := newMockCtxWithRPCInfo(serviceinfo.StreamingNone)
+	verifyUnary(t, ctx, opt, ctl)
+	// unary
+	ctx = newMockCtxWithRPCInfo(serviceinfo.StreamingUnary)
+	verifyUnary(t, ctx, opt, ctl)
+	// streaming
+	modes := []serviceinfo.StreamingMode{serviceinfo.StreamingClient, serviceinfo.StreamingServer, serviceinfo.StreamingBidirectional}
+	for _, mode := range modes {
+		ctx = newMockCtxWithRPCInfo(mode)
+		verifyStreaming(t, ctx, opt, ctl)
+	}
+}
+
+func verifyUnary(t *testing.T, ctx context.Context, opt *remote.ClientOption, ctl *rpcinfo.TraceController) {
+	ri := rpcinfo.GetRPCInfo(ctx)
+	_, err := opt.ConnPool.Get(ctx, "tcp", mockAddr0, remote.ConnOption{Dialer: opt.Dialer, ConnectTimeout: time.Second})
+	test.Assert(t, err == nil, err)
+	t.Run("header + trailer", func(t *testing.T) {
+		hd := &metadata.MD{}
+		nctx := GRPCHeader(ctx, hd)
+		tl := &metadata.MD{}
+		nctx = GRPCTrailer(nctx, tl)
+		ctl.ReportStreamStartEvent(nctx, ri, rpcinfo.StreamStartEvent{})
+		gotHd := map[string][]string{
+			"key": {"val1", "val2"},
+		}
+		ctl.ReportStreamRecvHeaderEvent(nctx, ri, rpcinfo.StreamRecvHeaderEvent{Header: gotHd})
+		gotTl := map[string][]string{
+			"KEY": {"VAL1", "VAL2"},
+		}
+		ctl.ReportStreamFinishEvent(nctx, ri, rpcinfo.StreamFinishEvent{Trailer: gotTl})
+		test.DeepEqual(t, *hd, metadata.MD(gotHd))
+		test.DeepEqual(t, *tl, metadata.MD(gotTl))
+	})
+	t.Run("header", func(t *testing.T) {
+		hd := &metadata.MD{}
+		nctx := GRPCHeader(ctx, hd)
+		tl := &metadata.MD{}
+		nctx = GRPCTrailer(nctx, tl)
+		ctl.ReportStreamStartEvent(nctx, ri, rpcinfo.StreamStartEvent{})
+		gotHd := map[string][]string{
+			"key": {"val1", "val2"},
+		}
+		ctl.ReportStreamRecvHeaderEvent(nctx, ri, rpcinfo.StreamRecvHeaderEvent{Header: gotHd})
+		// maybe recv RstStream Frame
+		ctl.ReportStreamFinishEvent(nctx, ri, rpcinfo.StreamFinishEvent{})
+		test.DeepEqual(t, *hd, metadata.MD(gotHd))
+		test.Assert(t, (*tl).Len() == 0, *tl)
+	})
+	t.Run("trailer-only", func(t *testing.T) {
+		hd := &metadata.MD{}
+		nctx := GRPCHeader(ctx, hd)
+		tl := &metadata.MD{}
+		nctx = GRPCTrailer(nctx, tl)
+		ctl.ReportStreamStartEvent(nctx, ri, rpcinfo.StreamStartEvent{})
+		gotTl := map[string][]string{
+			"KEY": {"VAL1", "VAL2"},
+		}
+		ctl.ReportStreamFinishEvent(nctx, ri, rpcinfo.StreamFinishEvent{Trailer: gotTl})
+		test.Assert(t, (*hd).Len() == 0, *hd)
+		test.DeepEqual(t, *tl, metadata.MD(gotTl))
+	})
+}
+
+func verifyStreaming(t *testing.T, ctx context.Context, opt *remote.ClientOption, ctl *rpcinfo.TraceController) {
+	ri := rpcinfo.GetRPCInfo(ctx)
+	_, err := opt.ConnPool.Get(ctx, "tcp", mockAddr0, remote.ConnOption{Dialer: opt.Dialer, ConnectTimeout: time.Second})
+	test.Assert(t, err == nil, err)
+	t.Run("header + trailer", func(t *testing.T) {
+		hd := &metadata.MD{}
+		nctx := GRPCHeader(ctx, hd)
+		tl := &metadata.MD{}
+		nctx = GRPCTrailer(nctx, tl)
+		ctl.ReportStreamStartEvent(nctx, ri, rpcinfo.StreamStartEvent{})
+		gotHd := map[string][]string{
+			"key": {"val1", "val2"},
+		}
+		ctl.ReportStreamRecvHeaderEvent(nctx, ri, rpcinfo.StreamRecvHeaderEvent{Header: gotHd})
+		gotTl := map[string][]string{
+			"KEY": {"VAL1", "VAL2"},
+		}
+		ctl.ReportStreamFinishEvent(nctx, ri, rpcinfo.StreamFinishEvent{Trailer: gotTl})
+		test.Assert(t, (*hd).Len() == 0, *tl)
+		test.Assert(t, (*tl).Len() == 0, *tl)
+	})
+	t.Run("header", func(t *testing.T) {
+		hd := &metadata.MD{}
+		nctx := GRPCHeader(ctx, hd)
+		tl := &metadata.MD{}
+		nctx = GRPCTrailer(nctx, tl)
+		ctl.ReportStreamStartEvent(nctx, ri, rpcinfo.StreamStartEvent{})
+		gotHd := map[string][]string{
+			"key": {"val1", "val2"},
+		}
+		ctl.ReportStreamRecvHeaderEvent(nctx, ri, rpcinfo.StreamRecvHeaderEvent{Header: gotHd})
+		// maybe recv RstStream Frame
+		ctl.ReportStreamFinishEvent(nctx, ri, rpcinfo.StreamFinishEvent{})
+		test.Assert(t, (*hd).Len() == 0, *tl)
+		test.Assert(t, (*tl).Len() == 0, *tl)
+	})
+	t.Run("trailer-only", func(t *testing.T) {
+		hd := &metadata.MD{}
+		nctx := GRPCHeader(ctx, hd)
+		tl := &metadata.MD{}
+		nctx = GRPCTrailer(nctx, tl)
+		ctl.ReportStreamStartEvent(nctx, ri, rpcinfo.StreamStartEvent{})
+		gotTl := map[string][]string{
+			"KEY": {"VAL1", "VAL2"},
+		}
+		ctl.ReportStreamFinishEvent(nctx, ri, rpcinfo.StreamFinishEvent{Trailer: gotTl})
+		test.Assert(t, (*hd).Len() == 0, *tl)
+		test.Assert(t, (*tl).Len() == 0, *tl)
+	})
 }

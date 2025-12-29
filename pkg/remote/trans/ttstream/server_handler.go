@@ -40,6 +40,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/serviceinfo"
+	"github.com/cloudwego/kitex/pkg/stats"
 	"github.com/cloudwego/kitex/pkg/streaming"
 	"github.com/cloudwego/kitex/pkg/utils"
 )
@@ -171,12 +172,6 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) (err error)
 func (t *svrTransHandler) OnStream(ctx context.Context, conn net.Conn, st *serverStream) (err error) {
 	ri := t.opt.InitOrResetRPCInfoFunc(nil, conn.RemoteAddr())
 	stCtx := rpcinfo.NewCtxWithRPCInfo(st.ctx, ri)
-	defer func() {
-		if rpcinfo.PoolEnabled() {
-			ri = t.opt.InitOrResetRPCInfoFunc(ri, conn.RemoteAddr())
-			// TODO: rpcinfo pool
-		}
-	}()
 
 	ink := ri.Invocation().(rpcinfo.InvocationSetter)
 	// TODO: support protobuf codec, and make `strict` true when combine service is not supported.
@@ -320,6 +315,7 @@ func (t *svrTransHandler) SetPipeline(pipeline *remote.TransPipeline) {
 
 func (t *svrTransHandler) startTracer(ctx context.Context, ri rpcinfo.RPCInfo) context.Context {
 	c := t.opt.TracerCtl.DoStart(ctx, ri)
+	t.opt.TracerCtl.ReportStreamEvent(c, stats.StreamStart, nil)
 	return c
 }
 
@@ -331,6 +327,7 @@ func (t *svrTransHandler) finishTracer(ctx context.Context, ri rpcinfo.RPCInfo, 
 	if panicErr != nil {
 		rpcStats.SetPanicked(panicErr)
 	}
+	t.opt.TracerCtl.ReportStreamEvent(ctx, stats.StreamFinish, nil)
 	t.opt.TracerCtl.DoFinish(ctx, ri, err)
 	rpcStats.Reset()
 }

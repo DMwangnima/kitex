@@ -106,6 +106,48 @@ func (c *TraceController) ReportStreamEvent(ctx context.Context, statsEvent stat
 	}
 }
 
+func (c *TraceController) ReportStreamStartEvent(ctx context.Context, ri RPCInfo, evt StreamStartEvent) {
+	if !c.HasStreamEventReporter() {
+		return
+	}
+	defer func() {
+		c.tryRecover(ctx)
+		evt.Recycle()
+	}()
+	evt.event = newEvent(stats.StreamStart, stats.StatusInfo, "")
+	for i := len(c.streamEventReporters) - 1; i >= 0; i-- {
+		c.streamEventReporters[i].ReportStreamEvent(ctx, ri, evt)
+	}
+}
+
+func (c *TraceController) ReportStreamRecvHeaderEvent(ctx context.Context, ri RPCInfo, evt StreamRecvHeaderEvent) {
+	if !c.HasStreamEventReporter() {
+		return
+	}
+	defer func() {
+		c.tryRecover(ctx)
+		evt.Recycle()
+	}()
+	evt.event = newEvent(stats.StreamRecvHeader, stats.StatusInfo, "")
+	for i := len(c.streamEventReporters) - 1; i >= 0; i-- {
+		c.streamEventReporters[i].ReportStreamEvent(ctx, ri, evt)
+	}
+}
+
+func (c *TraceController) ReportStreamFinishEvent(ctx context.Context, ri RPCInfo, evt StreamFinishEvent) {
+	if !c.HasStreamEventReporter() {
+		return
+	}
+	defer func() {
+		c.tryRecover(ctx)
+		evt.Recycle()
+	}()
+	evt.event = newEvent(stats.StreamFinish, stats.StatusInfo, "")
+	for i := len(c.streamEventReporters) - 1; i >= 0; i-- {
+		c.streamEventReporters[i].ReportStreamEvent(ctx, ri, evt)
+	}
+}
+
 // GetStreamEventHandler returns the stream event handler
 // If there's no StreamEventReporter, nil is returned for client/server to skip adding tracing middlewares
 func (c *TraceController) GetStreamEventHandler() stream.StreamEventHandler {

@@ -26,14 +26,22 @@ import (
 
 	"github.com/cloudwego/kitex/internal/test"
 	"github.com/cloudwego/kitex/pkg/remote"
+	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/grpc"
+	"github.com/cloudwego/kitex/pkg/serviceinfo"
 )
+
+func TestNewConnPool(t *testing.T) {
+	pool := NewConnPool("service", 0, grpc.ConnectOptions{})
+	test.Assert(t, pool.connOpts.TraceController != nil, pool)
+	test.Assert(t, pool.connOpts.TraceController.GetStreamEventHandler() != nil, pool)
+}
 
 func TestConnPool(t *testing.T) {
 	// mock init
-	connPool := newMockConnPool()
+	connPool := newMockConnPool(nil)
 	defer connPool.Close()
 	opt := newMockConnOption()
-	ctx := newMockCtxWithRPCInfo()
+	ctx := newMockCtxWithRPCInfo(serviceinfo.StreamingNone)
 
 	// test Get()
 	_, err := connPool.Get(ctx, "tcp", mockAddr0, opt)
@@ -80,11 +88,11 @@ func TestReleaseConn(t *testing.T) {
 		npConn.mockSettingFrame()
 		return npConn, nil
 	}
-	shortCP := newMockConnPool()
+	shortCP := newMockConnPool(nil)
 	shortCP.connOpts.ShortConn = true
 	defer shortCP.Close()
 
-	conn, err := shortCP.Get(newMockCtxWithRPCInfo(), "tcp", mockAddr0, remote.ConnOption{Dialer: newMockDialerWithDialFunc(dialFunc1)})
+	conn, err := shortCP.Get(newMockCtxWithRPCInfo(serviceinfo.StreamingNone), "tcp", mockAddr0, remote.ConnOption{Dialer: newMockDialerWithDialFunc(dialFunc1)})
 	// close stream to ensure no active stream on this connection,
 	// which will be released when put back to the connection pool and closed by GracefulClose
 	s := conn.(*clientConn).s
@@ -106,11 +114,11 @@ func TestReleaseConn(t *testing.T) {
 		npConn.mockSettingFrame()
 		return npConn, nil
 	}
-	longCP := newMockConnPool()
+	longCP := newMockConnPool(nil)
 	longCP.connOpts.ShortConn = false
 	defer longCP.Close()
 
-	longConn, err := longCP.Get(newMockCtxWithRPCInfo(), "tcp", mockAddr0, remote.ConnOption{Dialer: newMockDialerWithDialFunc(dialFunc2)})
+	longConn, err := longCP.Get(newMockCtxWithRPCInfo(serviceinfo.StreamingNone), "tcp", mockAddr0, remote.ConnOption{Dialer: newMockDialerWithDialFunc(dialFunc2)})
 	longConn.Close()
 	test.Assert(t, err == nil, err)
 	longCP.Put(longConn)
