@@ -21,6 +21,7 @@ import (
 
 	"github.com/bytedance/gopkg/cloud/metainfo"
 
+	"github.com/cloudwego/kitex/internal/stream/meta"
 	"github.com/cloudwego/kitex/pkg/logid"
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/metadata"
@@ -45,20 +46,10 @@ func (mi *metainfoClientHandler) OnConnectStream(ctx context.Context) (context.C
 	// gRPC send meta when connection is establishing
 	// so put metainfo into metadata before sending http2 headers
 	ri := rpcinfo.GetRPCInfo(ctx)
-	if isGRPC(ri) {
-		// append kitex metainfo into metadata list
-		// kitex metainfo key starts with " rpc-transit-xxx "
-		md, ok := metadata.FromOutgoingContext(ctx)
-		if !ok {
-			md = metadata.MD{}
-		}
-		metainfo.ToHTTPHeader(ctx, metainfo.HTTPHeader(md))
-		if streamLogID := logid.GetStreamLogID(ctx); streamLogID != "" {
-			md[transmeta.HTTPStreamLogID] = []string{streamLogID}
-		}
-		ctx = metadata.NewOutgoingContext(ctx, md)
+	if !isGRPC(ri) {
+		return ctx, nil
 	}
-	return ctx, nil
+	return meta.MetainfoHandleCreateStreamEvent(ctx, ri)
 }
 
 func (mi *metainfoClientHandler) OnReadStream(ctx context.Context) (context.Context, error) {
@@ -101,17 +92,10 @@ func (mi *metainfoServerHandler) OnReadStream(ctx context.Context) (context.Cont
 	// gRPC server receives meta from http2 header when reading stream
 	// read all metadata and put those with kitex-metainfo kvs into ctx
 	ri := rpcinfo.GetRPCInfo(ctx)
-	if isGRPC(ri) {
-		// Attach kitex metainfo into context
-		mdata, ok := metadata.FromIncomingContext(ctx)
-		if ok {
-			ctx = metainfo.FromHTTPHeader(ctx, metainfo.HTTPHeader(mdata))
-			ctx = metainfo.WithBackwardValuesToSend(ctx)
-			ctx = metainfo.TransferForward(ctx)
-			ctx = addStreamIDToContext(ctx, mdata)
-		}
+	if !isGRPC(ri) {
+		return ctx, nil
 	}
-	return ctx, nil
+	return meta.MetainfoHandleAcceptStreamEvent(ctx, ri)
 }
 
 func addStreamIDToContext(ctx context.Context, md metadata.MD) context.Context {

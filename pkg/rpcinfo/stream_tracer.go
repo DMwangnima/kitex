@@ -27,6 +27,7 @@ import (
 
 // ClientStreamEventHandler defines a series handler for client-side detailed Streaming Event tracing.
 type ClientStreamEventHandler struct {
+	HandleCreateStreamEvent     func(ctx context.Context, ri RPCInfo) (context.Context, error)
 	HandleStreamStartEvent      func(ctx context.Context, ri RPCInfo, evt StreamStartEvent)
 	HandleStreamRecvHeaderEvent func(ctx context.Context, ri RPCInfo, evt StreamRecvHeaderEvent)
 	HandleStreamRecvEvent       func(ctx context.Context, ri RPCInfo, evt StreamRecvEvent)
@@ -36,10 +37,12 @@ type ClientStreamEventHandler struct {
 
 // ServerStreamEventHandler defines a series handler for server-side detailed Streaming Event tracing.
 type ServerStreamEventHandler struct {
-	HandleStreamStartEvent  func(ctx context.Context, ri RPCInfo, evt StreamStartEvent)
-	HandleStreamRecvEvent   func(ctx context.Context, ri RPCInfo, evt StreamRecvEvent)
-	HandleStreamSendEvent   func(ctx context.Context, ri RPCInfo, evt StreamSendEvent)
-	HandleStreamFinishEvent func(ctx context.Context, ri RPCInfo, evt StreamFinishEvent)
+	HandleAcceptStreamEvent     func(ctx context.Context, ri RPCInfo) (context.Context, error)
+	HandleStreamStartEvent      func(ctx context.Context, ri RPCInfo, evt StreamStartEvent)
+	HandleStreamSendHeaderEvent func(ctx context.Context, ri RPCInfo, evt StreamSendHeaderEvent)
+	HandleStreamRecvEvent       func(ctx context.Context, ri RPCInfo, evt StreamRecvEvent)
+	HandleStreamSendEvent       func(ctx context.Context, ri RPCInfo, evt StreamSendEvent)
+	HandleStreamFinishEvent     func(ctx context.Context, ri RPCInfo, evt StreamFinishEvent)
 }
 
 // StreamStartEvent marks the beginning of a stream.
@@ -67,6 +70,11 @@ type StreamSendEvent struct {
 // - When a gRPC header frame is received, GRPCHeader is not nil.
 // - when a TTHeader Streaming header frame is received, TTStreamHeader is not nil.
 type StreamRecvHeaderEvent struct {
+	GRPCHeader     map[string][]string
+	TTStreamHeader map[string]string
+}
+
+type StreamSendHeaderEvent struct {
 	GRPCHeader     map[string][]string
 	TTStreamHeader map[string]string
 }

@@ -20,9 +20,9 @@ package transmeta
 import (
 	"context"
 
+	"github.com/cloudwego/kitex/internal/stream/meta"
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/metadata"
-	"github.com/cloudwego/kitex/pkg/remote/transmeta"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/transport"
 )
@@ -47,16 +47,7 @@ func (*clientHTTP2Handler) OnConnectStream(ctx context.Context) (context.Context
 	if !isGRPC(ri) {
 		return ctx, nil
 	}
-	// append more meta into current metadata
-	md, ok := metadata.FromOutgoingContext(ctx)
-	if !ok {
-		md = metadata.MD{}
-	}
-	metaAppend(md, transmeta.HTTPDestService, ri.To().ServiceName())
-	metaAppend(md, transmeta.HTTPDestMethod, ri.To().Method())
-	metaAppend(md, transmeta.HTTPSourceService, ri.From().ServiceName())
-	metaAppend(md, transmeta.HTTPSourceMethod, ri.From().Method())
-	return metadata.NewOutgoingContext(ctx, md), nil
+	return meta.HTTP2MetaHandleCreateStreamEvent(ctx, ri)
 }
 
 func (*clientHTTP2Handler) OnReadStream(ctx context.Context) (context.Context, error) {
@@ -85,20 +76,7 @@ func (*serverHTTP2Handler) OnReadStream(ctx context.Context) (context.Context, e
 	if !isGRPC(ri) {
 		return ctx, nil
 	}
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return ctx, nil
-	}
-	ci := rpcinfo.AsMutableEndpointInfo(ri.From())
-	if ci != nil {
-		if v := md[transmeta.HTTPSourceService]; len(v) != 0 {
-			ci.SetServiceName(v[0])
-		}
-		if v := md[transmeta.HTTPSourceMethod]; len(v) != 0 {
-			ci.SetMethod(v[0])
-		}
-	}
-	return ctx, nil
+	return meta.HTTP2MetaHandleAcceptStreamEvent(ctx, ri)
 }
 
 func (sh *serverHTTP2Handler) WriteMeta(ctx context.Context, msg remote.Message) (context.Context, error) {
