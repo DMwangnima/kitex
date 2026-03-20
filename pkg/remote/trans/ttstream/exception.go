@@ -20,33 +20,84 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/kitex/pkg/kerrors"
 	"github.com/cloudwego/kitex/pkg/streaming"
 )
 
+const (
+	errApplicationExceptionTypeId = 12001
+	// protocol related
+	errUnexpectedHeaderTypeId = 12002
+	errIllegalBizErrTypeId    = 12003
+	errIllegalFrameTypeId     = 12004
+	errIllegalOperationTypeId = 12005
+	errTransportTypeId        = 12006
+	// cancel related
+	errBizCancelTypeId          = 12007
+	errBizCancelWithCauseTypeId = 12008
+	errDownstreamCancelTypeId   = 12009
+	errUpstreamCancelTypeId     = 12010
+	errInternalCancelTypeId     = 12011
+	errBizHandlerReturnTypeId   = 12012
+	errConnectionClosedTypeId   = 12013
+	// timeout related
+	errRecvTimeoutTypeId   = 12014
+	errStreamTimeoutTypeId = 12015
+	// other
+	errStreamInternalTypeId = 12016
+)
+
 var (
-	errApplicationException = newException("application exception", nil, 12001)
-	errUnexpectedHeader     = newException("unexpected header frame", kerrors.ErrStreamingProtocol, 12002)
-	errIllegalBizErr        = newException("illegal bizErr", kerrors.ErrStreamingProtocol, 12003)
-	errIllegalFrame         = newException("illegal frame", kerrors.ErrStreamingProtocol, 12004)
-	errIllegalOperation     = newException("illegal operation", kerrors.ErrStreamingProtocol, 12005)
-	errTransport            = newException("transport is closing", kerrors.ErrStreamingProtocol, 12006)
+	errApplicationException = newException("application exception", nil, errApplicationExceptionTypeId)
+	errUnexpectedHeader     = newException("unexpected header frame", kerrors.ErrStreamingProtocol, errUnexpectedHeaderTypeId)
+	errIllegalBizErr        = newException("illegal bizErr", kerrors.ErrStreamingProtocol, errIllegalBizErrTypeId)
+	errIllegalFrame         = newException("illegal frame", kerrors.ErrStreamingProtocol, errIllegalFrameTypeId)
+	errIllegalOperation     = newException("illegal operation", kerrors.ErrStreamingProtocol, errIllegalOperationTypeId)
+	errTransport            = newException("transport is closing", kerrors.ErrStreamingProtocol, errTransportTypeId)
 
 	errBizCancel = newException("user code invoking stream RPC with context processed by context.WithCancel or context.WithTimeout, then invoking cancel() actively",
-		kerrors.ErrStreamingCanceled, 12007)
-	errBizCancelWithCause     = newException("user code canceled with cancelCause(error)", kerrors.ErrStreamingCanceled, 12008)
-	errDownstreamCancel       = newException("canceled by downstream", kerrors.ErrStreamingCanceled, 12009)
-	errUpstreamCancel         = newException("canceled by upstream", kerrors.ErrStreamingCanceled, 12010)
-	errInternalCancel         = newException("internal canceled", kerrors.ErrStreamingCanceled, 12011)
-	errBizHandlerReturnCancel = newException("canceled by business handler returning", kerrors.ErrStreamingCanceled, 12012)
-	errConnectionClosedCancel = newException("canceled by connection closed", kerrors.ErrStreamingCanceled, 12013)
+		kerrors.ErrStreamingCanceled, errBizCancelTypeId)
+	errBizCancelWithCause     = newException("user code canceled with cancelCause(error)", kerrors.ErrStreamingCanceled, errBizCancelWithCauseTypeId)
+	errDownstreamCancel       = newException("canceled by downstream", kerrors.ErrStreamingCanceled, errDownstreamCancelTypeId)
+	errUpstreamCancel         = newException("canceled by upstream", kerrors.ErrStreamingCanceled, errUpstreamCancelTypeId)
+	errInternalCancel         = newException("internal canceled", kerrors.ErrStreamingCanceled, errInternalCancelTypeId)
+	errBizHandlerReturnCancel = newException("canceled by business handler returning", kerrors.ErrStreamingCanceled, errBizHandlerReturnTypeId)
+	errConnectionClosedCancel = newException("canceled by connection closed", kerrors.ErrStreamingCanceled, errConnectionClosedTypeId)
 )
 
 var errServerSideBizHandlerReturnCancel = errBizHandlerReturnCancel.newBuilder().withSide(serverSide)
 
-func newStreamRecvTimeoutException(cfg streaming.TimeoutConfig) *Exception {
-	return newException(fmt.Sprintf("stream Recv timeout, timeout config=%+v", cfg), kerrors.ErrStreamingTimeout, 12014).withSide(clientSide)
+func NewStreamRecvTimeoutException(cfg streaming.TimeoutConfig, isClient bool) *Exception {
+	side := clientSide
+	if !isClient {
+		side = serverSide
+	}
+	return newException(fmt.Sprintf("stream Recv timeout, timeout config=%+v", cfg), kerrors.ErrStreamingTimeout, errRecvTimeoutTypeId).withSide(side)
+}
+
+func newStreamRecvTimeoutException(tm time.Duration) *Exception {
+	return newException(fmt.Sprintf("stream Recv timeout, timeout=%+v", tm), kerrors.ErrStreamingTimeout, errRecvTimeoutTypeId).withSide(clientSide)
+}
+
+func newStreamTimeoutException(tm time.Duration) *Exception {
+	var msg string
+	if tm > 0 {
+		msg = fmt.Sprintf("stream timeout, timeout in ctx: %+v", tm)
+	} else {
+		msg = "stream timeout, no explicit timeout set in stream ctx"
+	}
+	return newException(msg, kerrors.ErrStreamingTimeout, errStreamTimeoutTypeId).withSide(clientSide)
+}
+
+func NewStreamInternalException(desc string, isClient bool) *Exception {
+	side := clientSide
+	if !isClient {
+		side = serverSide
+	}
+	// stream internal exception does not have specified parent err, just pass nil
+	return newException(desc, nil, errStreamInternalTypeId).withSide(side)
 }
 
 const (

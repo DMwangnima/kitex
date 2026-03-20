@@ -31,44 +31,44 @@ func TestStreamReader(t *testing.T) {
 	round := 10000
 
 	// basic IOs
-	sio := newStreamReader()
+	sio := newStreamReader(ctx, nil)
 	doneCh := make(chan struct{})
 	go func() {
 		for i := 0; i < round; i++ {
-			sio.input(ctx, msg)
+			sio.input(msg)
 		}
 		close(doneCh)
 	}()
 	for i := 0; i < round; i++ {
-		payload, err := sio.output(ctx)
+		payload, err := sio.output()
 		test.Assert(t, err == nil, err)
 		test.DeepEqual(t, msg, payload)
 	}
 	// wait for goroutine exited
 	<-doneCh
 	// exception IOs
-	sio.input(ctx, msg)
+	sio.input(msg)
 	targetErr := errors.New("test")
 	sio.close(targetErr)
-	payload, err := sio.output(ctx)
+	payload, err := sio.output()
 	test.Assert(t, err == nil, err)
 	test.DeepEqual(t, msg, payload)
-	payload, err = sio.output(ctx)
+	payload, err = sio.output()
 	test.Assert(t, payload == nil, payload)
 	test.Assert(t, errors.Is(err, targetErr), err)
 
 	// ctx canceled IOs
-	ctx, cancel := context.WithCancel(ctx)
-	sio = newStreamReader()
-	sio.input(ctx, msg)
+	ctx2, cancel := context.WithCancel(context.Background())
+	sio = newStreamReader(ctx2, nil)
+	sio.input(msg)
 	go func() {
 		time.Sleep(time.Millisecond * 10)
 		cancel()
 	}()
-	payload, err = sio.output(ctx)
+	payload, err = sio.output()
 	test.Assert(t, err == nil, err)
 	test.DeepEqual(t, msg, payload)
-	payload, err = sio.output(ctx)
+	payload, err = sio.output()
 	test.Assert(t, payload == nil, payload)
 	test.Assert(t, errors.Is(err, context.Canceled), err)
 }

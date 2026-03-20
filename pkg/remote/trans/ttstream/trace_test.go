@@ -137,7 +137,7 @@ func TestTrace_trace(t *testing.T) {
 			cliTraceCtl.HandleStreamStartEvent(ctx, cs.rpcInfo, rpcinfo.StreamStartEvent{})
 
 			strans := newServerTransport(sconn)
-			ss, err := strans.ReadStream(context.Background())
+			ss, err := strans.ReadStream()
 			test.Assert(t, err == nil, err)
 
 			var wg sync.WaitGroup
@@ -215,7 +215,7 @@ func TestTrace_trace(t *testing.T) {
 			cliTraceCtl.HandleStreamStartEvent(ctx, cs.rpcInfo, rpcinfo.StreamStartEvent{})
 
 			strans := newServerTransport(sconn)
-			ss, err := strans.ReadStream(context.Background())
+			ss, err := strans.ReadStream()
 			test.Assert(t, err == nil, err)
 
 			var wg sync.WaitGroup
@@ -299,7 +299,7 @@ func TestTrace_trace(t *testing.T) {
 			cliTraceCtl.HandleStreamStartEvent(ctx, cs.rpcInfo, rpcinfo.StreamStartEvent{})
 
 			strans := newServerTransport(sconn)
-			ss, err := strans.ReadStream(context.Background())
+			ss, err := strans.ReadStream()
 			test.Assert(t, err == nil, err)
 
 			var wg sync.WaitGroup
@@ -381,7 +381,7 @@ func TestTrace_trace(t *testing.T) {
 			cliTraceCtl.HandleStreamStartEvent(ctx, cs.rpcInfo, rpcinfo.StreamStartEvent{})
 
 			strans := newServerTransport(sconn)
-			ss, err := strans.ReadStream(context.Background())
+			ss, err := strans.ReadStream()
 			test.Assert(t, err == nil, err)
 
 			// Server closes immediately with no data
@@ -431,7 +431,7 @@ func TestTrace_trace(t *testing.T) {
 			cliTraceCtl.HandleStreamStartEvent(ctx, cs.rpcInfo, rpcinfo.StreamStartEvent{})
 
 			strans := newServerTransport(sconn)
-			ss, err := strans.ReadStream(context.Background())
+			ss, err := strans.ReadStream()
 			test.Assert(t, err == nil, err)
 
 			// Server sends header
@@ -486,7 +486,7 @@ func TestTrace_trace(t *testing.T) {
 			cliTraceCtl.HandleStreamStartEvent(ctx, cs.rpcInfo, rpcinfo.StreamStartEvent{})
 
 			strans := newServerTransport(sconn)
-			ss, err := strans.ReadStream(context.Background())
+			ss, err := strans.ReadStream()
 			test.Assert(t, err == nil, err)
 
 			// Server sends one message
@@ -552,7 +552,7 @@ func TestTrace_trace(t *testing.T) {
 			cliTraceCtl.HandleStreamStartEvent(ctx, cs.rpcInfo, rpcinfo.StreamStartEvent{})
 
 			strans := newServerTransport(sconn)
-			ss, err := strans.ReadStream(context.Background())
+			ss, err := strans.ReadStream()
 			test.Assert(t, err == nil, err)
 
 			// Cancel immediately after stream creation
@@ -609,7 +609,7 @@ func TestTrace_trace(t *testing.T) {
 			cliTraceCtl.HandleStreamStartEvent(ctx, cs.rpcInfo, rpcinfo.StreamStartEvent{})
 
 			strans := newServerTransport(sconn)
-			ss, err := strans.ReadStream(context.Background())
+			ss, err := strans.ReadStream()
 			test.Assert(t, err == nil, err)
 
 			// Send one message
@@ -672,7 +672,7 @@ func TestTrace_trace(t *testing.T) {
 			cliTraceCtl.HandleStreamStartEvent(ctx, cs.rpcInfo, rpcinfo.StreamStartEvent{})
 
 			strans := newServerTransport(sconn)
-			ss, err := strans.ReadStream(context.Background())
+			ss, err := strans.ReadStream()
 			test.Assert(t, err == nil, err)
 
 			var wg sync.WaitGroup

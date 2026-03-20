@@ -19,11 +19,13 @@ package ttstream
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/bytedance/gopkg/lang/mcache"
 	"github.com/cloudwego/gopkg/protocol/thrift"
 	"github.com/cloudwego/gopkg/protocol/ttheader"
 
+	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream/internal/container"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/streaming"
 	ktransport "github.com/cloudwego/kitex/transport"
@@ -83,11 +85,12 @@ type stream struct {
 	wheader  streaming.Header  // wheader == nil means it already be sent
 	wtrailer streaming.Trailer // wtrailer == nil means it already be sent
 
-	recvTimeoutConfig streaming.TimeoutConfig
-	closeCallback     []func(error)
+	recvTimeout         time.Duration
+	recvTimeoutCallback container.CtxDoneCallback
+	closeCallback       []func(error)
 }
 
-func (s *stream) Service() string {
+func (s *stream) IdlService() string {
 	if len(s.header) == 0 {
 		return ""
 	}
@@ -100,6 +103,13 @@ func (s *stream) Method() string {
 
 func (s *stream) TransportProtocol() ktransport.Protocol {
 	return ktransport.TTHeaderStreaming
+}
+
+func (s *stream) fromService() string {
+	if s.rpcInfo != nil {
+		return s.rpcInfo.From().ServiceName()
+	}
+	return ""
 }
 
 // SendMsg send a message to peer.
@@ -125,16 +135,24 @@ func (s *stream) SendMsg(ctx context.Context, msg any) (err error) {
 
 func (s *stream) RecvMsg(ctx context.Context, data any) error {
 	nctx := s.ctx
-	if s.recvTimeoutConfig.Timeout > 0 {
+	var payload []byte
+	var err error
+	if s.recvTimeout > 0 {
+		// If s.ctx and the recv context are done at the same time
+		// (for example, if the stream is canceled just as recv times out),
+		// the pipe in the reader prioritizes returning the cancellation cause from s.ctx.
 		var cancel context.CancelFunc
-		nctx, cancel = context.WithTimeout(nctx, s.recvTimeoutConfig.Timeout)
+		nctx, cancel = context.WithTimeout(nctx, s.recvTimeout)
 		defer cancel()
+		payload, err = s.reader.outputWithCtx(nctx, s.recvTimeoutCallback)
+	} else {
+		payload, err = s.reader.output()
 	}
-	payload, err := s.reader.output(nctx)
 	if err != nil {
 		return err
 	}
 	err = DecodePayload(nctx, payload, data)
+	recvSize := len(payload)
 	// payload will not be access after decode
 	mcache.Free(payload)
 
@@ -142,7 +160,7 @@ func (s *stream) RecvMsg(ctx context.Context, data any) error {
 	ri := s.rpcInfo
 	if ri != nil && ri.Stats() != nil {
 		if rpcStats := rpcinfo.AsMutableRPCStats(ri.Stats()); rpcStats != nil {
-			rpcStats.IncrRecvSize(uint64(len(payload)))
+			rpcStats.IncrRecvSize(uint64(recvSize))
 		}
 	}
 	return err
@@ -152,24 +170,12 @@ func (s *stream) RegisterCloseCallback(cb func(error)) {
 	s.closeCallback = append(s.closeCallback, cb)
 }
 
-func (s *stream) setRecvTimeoutConfig(cfg rpcinfo.RPCConfig) {
-	tmCfg := cfg.StreamRecvTimeoutConfig()
-	// WithStreamRecvTimeoutConfig has higher priority
-	if tmCfg.Timeout > 0 {
-		s.recvTimeoutConfig = tmCfg
-		return
-	}
-	// compatible for WithStreamRecvTimeout(tm), it's equivalent to
-	// streaming.TimeoutConfig{
-	//   Timeout: tm,
-	//   DisableCancelRemote: false,
-	// }
-	tm := cfg.StreamRecvTimeout()
-	if tm > 0 {
-		s.recvTimeoutConfig = streaming.TimeoutConfig{
-			Timeout: tm,
-		}
-	}
+func (s *stream) setRecvTimeout(tm time.Duration) {
+	s.recvTimeout = tm
+}
+
+func (s *stream) setRecvTimeoutCallback(cb container.CtxDoneCallback) {
+	s.recvTimeoutCallback = cb
 }
 
 func (s *stream) runCloseCallback(exception error) {
@@ -225,6 +231,6 @@ func (s *stream) sendRst(exception error, cancelPath string) (err error) {
 // === Frame OnRead callback
 
 func (s *stream) onReadDataFrame(fr *Frame) (err error) {
-	s.reader.input(context.Background(), fr.payload)
+	s.reader.input(fr.payload)
 	return nil
 }

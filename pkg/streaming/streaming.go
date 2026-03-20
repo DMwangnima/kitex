@@ -25,6 +25,16 @@ import (
 )
 
 // Stream both client and server stream
+//
+// On client side, once RecvMsg or SendMsg returns a non-nil error, the stream should be considered
+// finished and no further calls should be made on it.
+// On server side, RecvMsg returning io.EOF only indicates the client-to-server direction is done;
+// the server may still call SendMsg. After RecvMsg returns io.EOF, the caller should not make
+// further RecvMsg calls, but SendMsg is not affected.
+// After SendMsg returns a non-nil error or RecvMsg returns any error other than io.EOF,
+// the stream is aborted.
+// If subsequent calls are made regardless, they will return the same error.
+//
 // Deprecated: It's only for gRPC, use ClientStream or ServerStream instead.
 type Stream interface {
 	// SetHeader sets the header metadata. It may be called multiple times.
@@ -47,13 +57,21 @@ type Stream interface {
 	Trailer() metadata.MD
 	// Context the stream context.Context
 	Context() context.Context
-	// RecvMsg recvive message from peer
-	// will block until an error or a message received
-	// not concurrent-safety
+	// RecvMsg receives a message from the peer.
+	// It blocks until a message is received or an error occurs.
+	// On client side, it returns io.EOF when the stream is done.
+	// On server side, it returns io.EOF when the client-to-server direction is done (i.e. the client
+	// called Close()); the server may still call SendMsg after that.
+	// After RecvMsg returns a non-nil error (including io.EOF), the caller should not make further
+	// RecvMsg calls. If subsequent calls are made regardless, they will return the same error.
+	// For non-EOF errors, the stream is aborted entirely.
+	// It is not concurrent-safe.
 	RecvMsg(m interface{}) error
-	// SendMsg send message to peer
-	// will block until an error or enough buffer to send
-	// not concurrent-safety
+	// SendMsg sends a message to the peer.
+	// It blocks until the message is sent or an error occurs.
+	// After SendMsg returns a non-nil error, the stream is aborted and
+	// subsequent calls will return the same error.
+	// It is not concurrent-safe.
 	SendMsg(m interface{}) error
 	// not concurrent-safety with SendMsg
 	io.Closer

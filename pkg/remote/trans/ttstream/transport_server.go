@@ -18,8 +18,6 @@ package ttstream
 
 import (
 	"context"
-	"errors"
-	"io"
 	"net"
 	"sync"
 
@@ -28,7 +26,7 @@ import (
 
 	"github.com/cloudwego/kitex/pkg/gofunc"
 	"github.com/cloudwego/kitex/pkg/klog"
-	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream/container"
+	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream/internal/container"
 )
 
 // transport is used to read/write frames and disturbed frames to different streams
@@ -51,9 +49,10 @@ func newServerTransport(conn netpoll.Connection) *serverTransport {
 	// TODO: let it configurable
 	_ = conn.SetReadTimeout(0)
 	t := &serverTransport{
-		conn:          conn,
-		streams:       sync.Map{},
-		spipe:         container.NewPipe[*serverStream](),
+		conn:    conn,
+		streams: sync.Map{},
+		// serverTransport does not have related ctx to control lifecycle, using context.Background() is okay
+		spipe:         container.NewPipe[*serverStream](context.Background(), nil),
 		scache:        make([]*serverStream, 0, streamCacheSize),
 		writer:        newWriterBuffer(conn.Writer()),
 		closedTrigger: make(chan struct{}, 1),
@@ -172,7 +171,7 @@ func (t *serverTransport) readFrame(reader bufiox.Reader) error {
 		s = newServerStream(ctx, t, fr.streamFrame)
 		s.cancelFunc = cFunc
 		t.storeStream(s)
-		err = t.spipe.Write(context.Background(), s)
+		t.spipe.Write(s)
 	} else {
 		// load exist stream
 		var ok bool
@@ -181,8 +180,6 @@ func (t *serverTransport) readFrame(reader bufiox.Reader) error {
 			// there is a race condition that server handler returns and client sends rst frame concurrently.
 			// then serverTransport would not find the target stream when receiving the rst frame.
 			klog.Debugf("transport[%s] read a unknown stream: frame[%s]", t.Addr(), fr.String())
-			// ignore unknown stream error
-			err = nil
 		} else {
 			// process different frames
 			switch fr.typ {
@@ -245,18 +242,15 @@ func (t *serverTransport) CloseStream(sid int32) (err error) {
 
 // ReadStream wait for a new incoming stream on current connection
 // it's typically used by server side
-func (t *serverTransport) ReadStream(ctx context.Context) (*serverStream, error) {
+func (t *serverTransport) ReadStream() (*serverStream, error) {
 READ:
 	if len(t.scache) > 0 {
 		s := t.scache[len(t.scache)-1]
 		t.scache = t.scache[:len(t.scache)-1]
 		return s, nil
 	}
-	n, err := t.spipe.Read(ctx, t.scache[0:streamCacheSize])
+	n, err := t.spipe.Read(t.scache[0:streamCacheSize])
 	if err != nil {
-		if errors.Is(err, container.ErrPipeEOF) {
-			return nil, io.EOF
-		}
 		return nil, err
 	}
 	if n == 0 {

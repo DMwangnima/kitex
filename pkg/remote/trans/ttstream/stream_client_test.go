@@ -23,16 +23,24 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cloudwego/kitex/internal/test"
+	"github.com/cloudwego/kitex/pkg/kerrors"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
-	"github.com/cloudwego/kitex/pkg/streaming"
 )
 
 func newTestClientStream(ctx context.Context) *clientStream {
-	return newClientStream(ctx, mockStreamWriter{}, streamFrame{})
+	return newClientStreamWithWriter(ctx, mockStreamWriter{})
+}
+
+func newClientStreamWithWriter(ctx context.Context, writer streamWriter) *clientStream {
+	cs := newClientStream(ctx, writer, streamFrame{method: "testMethod"})
+	cs.rpcInfo = rpcinfo.NewRPCInfo(
+		rpcinfo.NewEndpointInfo("testService", "testMethod", nil, nil), nil, nil, nil, nil)
+	return cs
 }
 
 func Test_clientStreamStateChange(t *testing.T) {
@@ -86,10 +94,11 @@ func Test_clientStreamStateChange(t *testing.T) {
 	})
 }
 
-func Test_clientStream_parseCtxErr(t *testing.T) {
+func Test_clientStream_parseStreamCtxErr(t *testing.T) {
 	testcases := []struct {
 		desc             string
 		ctxFunc          func() (context.Context, context.CancelFunc)
+		waitCtxDone      bool // if true, wait for ctx.Done() instead of calling cancel()
 		expectEx         *Exception
 		expectNoCancel   bool
 		expectCancelPath string
@@ -120,36 +129,15 @@ func Test_clientStream_parseCtxErr(t *testing.T) {
 			expectCancelPath: "serviceA,serviceB",
 		},
 		{
-			desc: "recv timeout",
+			desc: "stream ctx timeout",
 			ctxFunc: func() (context.Context, context.CancelFunc) {
-				cfg := rpcinfo.NewRPCConfig()
-				tm := 100 * time.Millisecond
-				rpcinfo.AsMutableRPCConfig(cfg).SetStreamRecvTimeoutConfig(streaming.TimeoutConfig{
-					Timeout: tm,
-				})
 				ctx := rpcinfo.NewCtxWithRPCInfo(context.Background(), rpcinfo.NewRPCInfo(
-					rpcinfo.NewEndpointInfo("serviceA", "testMethod", nil, nil), nil, nil, cfg, nil))
-				return context.WithTimeout(ctx, tm)
+					rpcinfo.NewEndpointInfo("serviceA", "testMethod", nil, nil), nil, nil, rpcinfo.NewRPCConfig(), nil))
+				return context.WithTimeout(ctx, 100*time.Millisecond)
 			},
-			expectEx:         newStreamRecvTimeoutException(streaming.TimeoutConfig{Timeout: 100 * time.Millisecond}),
+			waitCtxDone:      true,
+			expectEx:         newStreamTimeoutException(0),
 			expectCancelPath: "serviceA",
-		},
-		{
-			desc: "recv timeout with DisableCancelRemote",
-			ctxFunc: func() (context.Context, context.CancelFunc) {
-				cfg := rpcinfo.NewRPCConfig()
-				tm := 100 * time.Millisecond
-				rpcinfo.AsMutableRPCConfig(cfg).SetStreamRecvTimeoutConfig(streaming.TimeoutConfig{
-					Timeout:             tm,
-					DisableCancelRemote: true,
-				})
-				ctx := rpcinfo.NewCtxWithRPCInfo(context.Background(), rpcinfo.NewRPCInfo(
-					rpcinfo.NewEndpointInfo("serviceA", "testMethod", nil, nil), nil, nil, cfg, nil))
-				return context.WithTimeout(ctx, tm)
-			},
-			expectEx:         newStreamRecvTimeoutException(streaming.TimeoutConfig{Timeout: 100 * time.Millisecond, DisableCancelRemote: true}),
-			expectNoCancel:   true,
-			expectCancelPath: "",
 		},
 		{
 			desc: "other customized ctx Err",
@@ -170,17 +158,13 @@ func Test_clientStream_parseCtxErr(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.desc, func(t *testing.T) {
 			ctx, cancel := tc.ctxFunc()
-			cs := newClientStream(ctx, nil, streamFrame{})
-			ri := rpcinfo.GetRPCInfo(ctx)
-			if ri.Config().StreamRecvTimeoutConfig().Timeout > 0 {
-				cs.setRecvTimeoutConfig(ri.Config())
-				// wait for timeout
+			cs := newClientStream(ctx, mockStreamWriter{}, streamFrame{})
+			if tc.waitCtxDone {
 				<-ctx.Done()
 			} else {
-				// cancel directly
 				cancel()
 			}
-			finalEx, noCancel, cancelPath := cs.parseCtxErr(ctx)
+			finalEx, noCancel, cancelPath := cs.parseStreamCtxErr(ctx)
 			test.DeepEqual(t, finalEx, tc.expectEx)
 			test.Assert(t, tc.expectCancelPath == cancelPath, cancelPath)
 			test.Assert(t, tc.expectNoCancel == noCancel, noCancel)
@@ -215,4 +199,199 @@ func Test_clientStream_SendMsg(t *testing.T) {
 	cs.close(ex1, false, "", nil)
 	err = cs.SendMsg(ctx, req)
 	test.Assert(t, errors.Is(err, errDownstreamCancel), err)
+}
+
+// Test_CancelWithErr_concurrent tests that CancelWithErr (outer layer) racing with
+// ctxDoneCallback (pipe stream ctx) is safe. This simulates the dual-timer scenario:
+// outer callWithTimeout fires at the same moment as stream ctx deadline.
+func Test_CancelWithErr_concurrent(t *testing.T) {
+	t.Run("CancelWithErr races with ctxDoneCallback", func(t *testing.T) {
+		// Run multiple iterations to increase chance of hitting the race window
+		for i := 0; i < 100; i++ {
+			var rstCount int32
+			writer := mockStreamWriter{
+				writeFrameFunc: func(f *Frame) error {
+					if f.typ == rstFrameType {
+						atomic.AddInt32(&rstCount, 1)
+					}
+					return nil
+				},
+			}
+			// stream ctx with a very short deadline
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+			cs := newClientStreamWithWriter(ctx, writer)
+			cs.setStreamTimeout(10 * time.Millisecond)
+
+			outerErr := errBizCancel.newBuilder().withSide(clientSide)
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+
+			// goroutine 1: simulate outer layer calling CancelWithErr on timeout
+			go func() {
+				defer wg.Done()
+				<-ctx.Done() // wait for ctx to expire, then race
+				cs.CancelWithErr(outerErr)
+			}()
+
+			// goroutine 2: RecvMsg blocks in pipe, ctxDoneCallback fires on ctx expiry
+			go func() {
+				defer wg.Done()
+				_ = cs.RecvMsg(cs.ctx, nil)
+			}()
+
+			wg.Wait()
+			cancel()
+
+			test.Assert(t, atomic.LoadInt32(&cs.state) == streamStateInactive)
+			ex := cs.closeStreamException.Load()
+			test.Assert(t, ex != nil)
+			test.Assert(t, atomic.LoadInt32(&rstCount) == 1, atomic.LoadInt32(&rstCount))
+		}
+	})
+	t.Run("concurrent CancelWithErr calls", func(t *testing.T) {
+		for i := 0; i < 100; i++ {
+			writer := mockStreamWriter{
+				writeFrameFunc: func(f *Frame) error { return nil },
+			}
+			cs := newClientStreamWithWriter(context.Background(), writer)
+
+			ex1 := errBizCancel.newBuilder().withSide(clientSide)
+			ex2 := errDownstreamCancel.newBuilder().withSide(clientSide)
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				cs.CancelWithErr(ex1)
+			}()
+			go func() {
+				defer wg.Done()
+				cs.CancelWithErr(ex2)
+			}()
+			wg.Wait()
+
+			test.Assert(t, atomic.LoadInt32(&cs.state) == streamStateInactive)
+			stored := cs.closeStreamException.Load()
+			test.Assert(t, stored != nil)
+			storedErr := stored.(error)
+			test.Assert(t, errors.Is(storedErr, errBizCancel) || errors.Is(storedErr, errDownstreamCancel), storedErr)
+		}
+	})
+}
+
+func Test_recvTimeout(t *testing.T) {
+	t.Run("recv timeout closes stream and sends RST", func(t *testing.T) {
+		var rstFrameCount int32
+		closeStreamCh := make(chan struct{})
+		writer := mockStreamWriter{
+			writeFrameFunc: func(f *Frame) error {
+				if f.typ == rstFrameType {
+					atomic.AddInt32(&rstFrameCount, 1)
+				}
+				return nil
+			},
+			closeStreamFunc: func(sid int32) error {
+				close(closeStreamCh)
+				return nil
+			},
+		}
+		cs := newClientStreamWithWriter(context.Background(), writer)
+		cs.setRecvTimeout(50 * time.Millisecond)
+
+		rErr := cs.RecvMsg(cs.ctx, nil)
+		test.Assert(t, rErr != nil, rErr)
+		ex, ok := rErr.(*Exception)
+		test.Assert(t, ok, rErr)
+		test.Assert(t, ex.TypeId() == errRecvTimeoutTypeId, ex)
+		test.Assert(t, errors.Is(rErr, kerrors.ErrStreamingTimeout), rErr)
+		t.Log(rErr)
+
+		select {
+		case <-closeStreamCh:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for CloseStream")
+		}
+		test.Assert(t, atomic.LoadInt32(&rstFrameCount) == 1, atomic.LoadInt32(&rstFrameCount))
+	})
+	t.Run("stream ctx expires before recv timeout, returns stream timeout error", func(t *testing.T) {
+		var rstFrameCount int32
+		closeStreamCh := make(chan struct{})
+		writer := mockStreamWriter{
+			writeFrameFunc: func(f *Frame) error {
+				if f.typ == rstFrameType {
+					atomic.AddInt32(&rstFrameCount, 1)
+				}
+				return nil
+			},
+			closeStreamFunc: func(sid int32) error {
+				close(closeStreamCh)
+				return nil
+			},
+		}
+		// stream ctx expires in 50ms, recv timeout is 300ms
+		streamTimeout := 50 * time.Millisecond
+		ctx, cancel := context.WithTimeout(context.Background(), streamTimeout)
+		defer cancel()
+		cs := newClientStreamWithWriter(ctx, writer)
+		cs.setStreamTimeout(streamTimeout)
+		cs.setRecvTimeout(300 * time.Millisecond)
+
+		// RecvMsg should block until stream ctx expires (50ms), NOT until recv timeout (300ms)
+		start := time.Now()
+		rErr := cs.RecvMsg(cs.ctx, nil)
+		elapsed := time.Since(start)
+		test.Assert(t, rErr != nil, rErr)
+		ex, ok := rErr.(*Exception)
+		test.Assert(t, ok, rErr)
+		// must be stream timeout (errStreamTimeoutTypeId), NOT recv timeout (errRecvTimeoutTypeId)
+		test.Assert(t, ex.TypeId() == errStreamTimeoutTypeId, ex.TypeId())
+		t.Log(rErr)
+
+		// should return around 50ms, not 300ms
+		test.Assert(t, elapsed < 200*time.Millisecond, elapsed)
+
+		select {
+		case <-closeStreamCh:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for CloseStream")
+		}
+		test.Assert(t, atomic.LoadInt32(&rstFrameCount) > 0, atomic.LoadInt32(&rstFrameCount))
+	})
+	t.Run("recv timeout with stream ctx, recv timeout fires first", func(t *testing.T) {
+		var rstFrameCount int32
+		closeStreamCh := make(chan struct{})
+		writer := mockStreamWriter{
+			writeFrameFunc: func(f *Frame) error {
+				if f.typ == rstFrameType {
+					atomic.AddInt32(&rstFrameCount, 1)
+				}
+				return nil
+			},
+			closeStreamFunc: func(sid int32) error {
+				close(closeStreamCh)
+				return nil
+			},
+		}
+		// stream ctx expires in 300ms, recv timeout is 50ms
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		cs := newClientStreamWithWriter(ctx, writer)
+		cs.setRecvTimeout(50 * time.Millisecond)
+
+		rErr := cs.RecvMsg(cs.ctx, nil)
+		test.Assert(t, rErr != nil, rErr)
+		ex, ok := rErr.(*Exception)
+		test.Assert(t, ok, rErr)
+		test.Assert(t, ex.TypeId() == errRecvTimeoutTypeId, ex)
+		test.Assert(t, errors.Is(rErr, kerrors.ErrStreamingTimeout), rErr)
+		t.Log(rErr)
+
+		select {
+		case <-closeStreamCh:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for CloseStream")
+		}
+		test.Assert(t, atomic.LoadInt32(&rstFrameCount) > 0, atomic.LoadInt32(&rstFrameCount))
+	})
 }

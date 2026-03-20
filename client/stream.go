@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"runtime/debug"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/codes"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/metadata"
 	"github.com/cloudwego/kitex/pkg/remote/trans/nphttp2/status"
+	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/serviceinfo"
 	"github.com/cloudwego/kitex/pkg/streaming"
@@ -216,6 +218,9 @@ type stream struct {
 	streamingMode serviceinfo.StreamingMode
 	finished      uint32
 	isGRPC        bool
+
+	finishedErrOnce sync.Once
+	finishedErr     atomic.Value
 }
 
 var (
@@ -254,6 +259,9 @@ func newStream(ctx context.Context, s streaming.ClientStream, scm *remotecli.Str
 
 // Header returns the header data sent by the server if any.
 func (s *stream) Header() (hd streaming.Header, err error) {
+	if atomic.LoadUint32(&s.finished) == 1 {
+		return nil, s.finishedErr.Load().(error)
+	}
 	if hd, err = s.ClientStream.Header(); err != nil {
 		s.DoFinish(err)
 	}
@@ -263,6 +271,9 @@ func (s *stream) Header() (hd streaming.Header, err error) {
 // RecvMsg receives a message from the server.
 // If an error is returned, stream.DoFinish() will be called to record the end of stream
 func (s *stream) RecvMsg(ctx context.Context, m interface{}) (err error) {
+	if atomic.LoadUint32(&s.finished) == 1 {
+		return s.finishedErr.Load().(error)
+	}
 	if !s.recv.EqualsTo(recvEndpoint) {
 		// If the values are not equal, it indicates the presence of custom middleware.
 		// To prevent errors caused by middleware code that relies on rpcinfo when users
@@ -293,19 +304,27 @@ func (s *stream) handleStreamRecvEvent(err error) {
 }
 
 func (s *stream) recvWithTimeout(ctx context.Context, m interface{}) error {
-	if !s.isGRPC || s.recvTmCfg.Timeout <= 0 {
+	if s.recvTmCfg.Timeout <= 0 {
 		return s.recv(ctx, s.ClientStream, m)
+	}
+	buildTmErr := buildTTStreamRecvTimeoutErr
+	buildPanicErr := buildTTStreamRecvPanicErr
+	if s.isGRPC {
+		buildTmErr = buildGRPCRecvTimeoutErr
+		buildPanicErr = buildGRPCRecvPanicErr
 	}
 	return callWithTimeout(s.recvTmCfg,
 		func() error {
 			return s.recv(ctx, s.ClientStream, m)
 		},
 		s.cancel,
+		buildTmErr,
+		buildPanicErr,
 	)
 }
 
 func (s *stream) cancel(err error) {
-	// for now, only gRPC ClientStream implements CancelableClientStream interface
+	// ClientStream of gRPC and ttstream both implements CancelableClientStream interface
 	if c, ok := s.ClientStream.(internal_stream.CancelableClientStream); ok {
 		c.CancelWithErr(err)
 	}
@@ -314,6 +333,9 @@ func (s *stream) cancel(err error) {
 // SendMsg sends a message to the server.
 // If an error is returned, stream.DoFinish() will be called to record the end of stream
 func (s *stream) SendMsg(ctx context.Context, m interface{}) (err error) {
+	if atomic.LoadUint32(&s.finished) == 1 {
+		return s.finishedErr.Load().(error)
+	}
 	if !s.send.EqualsTo(sendEndpoint) {
 		// same with RecvMsg
 		ri := rpcinfo.GetRPCInfo(ctx)
@@ -338,6 +360,17 @@ func (s *stream) handleStreamSendEvent(err error) {
 // DoFinish implements the streaming.WithDoFinish interface, and it records the end of stream
 // It will release the connection.
 func (s *stream) DoFinish(err error) {
+	s.finishedErrOnce.Do(func() {
+		// store the finished err so that subsequent Recv/Send/Header calls would fail fast
+		// and return the same finished err.
+		// When err is nil (e.g. client streaming success), use io.EOF as the sentinel
+		// since the stream is done and no more messages can be received.
+		if err != nil {
+			s.finishedErr.Store(err)
+		} else {
+			s.finishedErr.Store(io.EOF)
+		}
+	})
 	if atomic.SwapUint32(&s.finished, 1) == 1 {
 		// already called
 		return
@@ -413,6 +446,8 @@ func (s *grpcStream) recvWithTimeout(m interface{}) error {
 			return s.recvEndpoint(s.Stream, m)
 		},
 		s.st.cancel,
+		buildGRPCRecvTimeoutErr,
+		buildGRPCRecvPanicErr,
 	)
 }
 
@@ -429,7 +464,11 @@ func (s *grpcStream) DoFinish(err error) {
 	s.st.DoFinish(err)
 }
 
-func callWithTimeout(tmCfg streaming.TimeoutConfig, call func() error, cancel func(error)) error {
+func callWithTimeout(tmCfg streaming.TimeoutConfig,
+	call func() error, cancel func(error),
+	buildTmErr func(streaming.TimeoutConfig) error,
+	buildPanicErr func(interface{}, []byte) error,
+) error {
 	timer := time.NewTimer(tmCfg.Timeout)
 	defer timer.Stop()
 	finishChan := make(chan error, 1)
@@ -437,7 +476,7 @@ func callWithTimeout(tmCfg streaming.TimeoutConfig, call func() error, cancel fu
 		var callErr error
 		defer func() {
 			if r := recover(); r != nil {
-				callErr = status.Errorf(codes.Internal, "stream Recv panic, panic=%v, stack=%s", r, debug.Stack())
+				callErr = buildPanicErr(r, debug.Stack())
 				cancel(callErr)
 			}
 			finishChan <- callErr
@@ -446,7 +485,8 @@ func callWithTimeout(tmCfg streaming.TimeoutConfig, call func() error, cancel fu
 	})
 	select {
 	case <-timer.C:
-		err := status.Errorf(codes.RecvDeadlineExceeded, recvTimeoutErrTpl, tmCfg)
+		err := buildTmErr(tmCfg)
+		// if DisableCancelRemote == true, users are responsible for ensuring that the stream is not leaked.
 		if !tmCfg.DisableCancelRemote {
 			// finish the stream lifecycle so that the goroutine could exit
 			cancel(err)
@@ -467,6 +507,22 @@ func isRPCError(err error) bool {
 	_, isBizStatusError := err.(kerrors.BizStatusErrorIface)
 	// if a tracer needs to get the BizStatusError, it should read from rpcinfo.invocation.bizStatusErr
 	return !isBizStatusError
+}
+
+func buildGRPCRecvTimeoutErr(tmCfg streaming.TimeoutConfig) error {
+	return status.Errorf(codes.RecvDeadlineExceeded, recvTimeoutErrTpl, tmCfg)
+}
+
+func buildGRPCRecvPanicErr(r interface{}, stack []byte) error {
+	return status.Errorf(codes.Internal, "stream Recv panic, panic=%v, stack=%s", r, stack)
+}
+
+func buildTTStreamRecvTimeoutErr(tmCfg streaming.TimeoutConfig) error {
+	return ttstream.NewStreamRecvTimeoutException(tmCfg, true)
+}
+
+func buildTTStreamRecvPanicErr(r interface{}, stack []byte) error {
+	return ttstream.NewStreamInternalException(fmt.Sprintf("stream Recv panic, panic=%v, stack=%s", r, stack), true)
 }
 
 var (

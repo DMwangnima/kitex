@@ -82,7 +82,7 @@ func TestTransportBasic(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -151,7 +151,7 @@ func TestTransportServerStreaming(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -216,7 +216,7 @@ func TestTransportException(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, make(IntHeader), make(streaming.Header))
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 	res := new(testResponse)
 	res.A = 123
@@ -245,7 +245,7 @@ func TestTransportException(t *testing.T) {
 	cs = newClientStream(ctx, ctrans, streamFrame{sid: genStreamID(), method: "Bidi"})
 	err = ctrans.WriteStream(ctx, cs, make(IntHeader), make(streaming.Header))
 	test.Assert(t, err == nil, err)
-	ss, err = strans.ReadStream(context.Background())
+	ss, err = strans.ReadStream()
 	test.Assert(t, err == nil, err)
 	test.Assert(t, ss != nil)
 	_, err = sconn.Writer().WriteBinary([]byte("helloxxxxxxxxxxxxxxxxxxxxxx"))
@@ -275,7 +275,7 @@ func TestTransportClose(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -353,7 +353,7 @@ func Test_clientStreamReceiveTrailer(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -577,7 +577,7 @@ func initTestStreams(t *testing.T, cCtx context.Context, method, cliNodeName, sr
 	err = ctrans.WriteStream(cCtx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 	ss.rpcInfo = rpcinfo.NewRPCInfo(
 		rpcinfo.NewEndpointInfo(srvNodeName, method, nil, nil), nil, nil, nil, nil)
@@ -1169,52 +1169,24 @@ func TestProxyCancel(t *testing.T) {
 }
 
 func TestRecvTimeout(t *testing.T) {
-	t.Run("ClientStreaming - only StreamRecvTimeout", func(t *testing.T) {
-		testRecvTimeoutClientStreaming(t, false, true, 50*time.Millisecond, 0)
+	t.Run("ClientStreaming", func(t *testing.T) {
+		testRecvTimeoutClientStreaming(t, 50*time.Millisecond)
 	})
-	t.Run("ClientStreaming - only StreamRecvTimeoutConfig", func(t *testing.T) {
-		testRecvTimeoutClientStreaming(t, true, false, 0, 50*time.Millisecond)
+	t.Run("ServerStreaming", func(t *testing.T) {
+		testRecvTimeoutServerStreaming(t, 50*time.Millisecond)
 	})
-	t.Run("ClientStreaming - both set, StreamRecvTimeoutConfig has higher priority", func(t *testing.T) {
-		testRecvTimeoutClientStreaming(t, true, true, 200*time.Millisecond, 50*time.Millisecond)
-	})
-	t.Run("ServerStreaming - only StreamRecvTimeout", func(t *testing.T) {
-		testRecvTimeoutServerStreaming(t, false, true, 50*time.Millisecond, 0)
-	})
-	t.Run("ServerStreaming - only StreamRecvTimeoutConfig", func(t *testing.T) {
-		testRecvTimeoutServerStreaming(t, true, false, 0, 50*time.Millisecond)
-	})
-	t.Run("ServerStreaming - both set, StreamRecvTimeoutConfig has higher priority", func(t *testing.T) {
-		testRecvTimeoutServerStreaming(t, true, true, 200*time.Millisecond, 50*time.Millisecond)
-	})
-	t.Run("BidiStreaming - only StreamRecvTimeout", func(t *testing.T) {
-		testRecvTimeoutBidiStreaming(t, false, true, 50*time.Millisecond, 0)
-	})
-	t.Run("BidiStreaming - only StreamRecvTimeoutConfig", func(t *testing.T) {
-		testRecvTimeoutBidiStreaming(t, true, false, 0, 50*time.Millisecond)
-	})
-	t.Run("BidiStreaming - both set, StreamRecvTimeoutConfig has higher priority", func(t *testing.T) {
-		testRecvTimeoutBidiStreaming(t, true, true, 200*time.Millisecond, 50*time.Millisecond)
+	t.Run("BidiStreaming", func(t *testing.T) {
+		testRecvTimeoutBidiStreaming(t, 50*time.Millisecond)
 	})
 }
 
-func testRecvTimeoutClientStreaming(t *testing.T, setTimeoutConfig, setRecvTimeout bool, recvTimeout, configTimeout time.Duration) {
+func testRecvTimeoutClientStreaming(t *testing.T, recvTimeout time.Duration) {
 	cliNodeName := "ttstream client"
 	srvNodeName := "ttstream server"
 	method := "ClientStreaming"
 
 	cliSt, srvSt := initTestStreams(t, context.Background(), method, cliNodeName, srvNodeName)
-
-	cfg := rpcinfo.NewRPCConfig()
-	if setRecvTimeout {
-		rpcinfo.AsMutableRPCConfig(cfg).SetStreamRecvTimeout(recvTimeout)
-	}
-	if setTimeoutConfig {
-		rpcinfo.AsMutableRPCConfig(cfg).SetStreamRecvTimeoutConfig(streaming.TimeoutConfig{
-			Timeout: configTimeout,
-		})
-	}
-	cliSt.setRecvTimeoutConfig(cfg)
+	cliSt.setRecvTimeout(recvTimeout)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1250,24 +1222,13 @@ func testRecvTimeoutClientStreaming(t *testing.T, setTimeoutConfig, setRecvTimeo
 	wg.Wait()
 }
 
-func testRecvTimeoutServerStreaming(t *testing.T, setTimeoutConfig, setRecvTimeout bool, recvTimeout, configTimeout time.Duration) {
+func testRecvTimeoutServerStreaming(t *testing.T, recvTimeout time.Duration) {
 	cliNodeName := "ttstream client"
 	srvNodeName := "ttstream server"
 	method := "ServerStreaming"
 
 	cliSt, srvSt := initTestStreams(t, context.Background(), method, cliNodeName, srvNodeName)
-
-	cfg := rpcinfo.NewRPCConfig()
-	if setRecvTimeout {
-		rpcinfo.AsMutableRPCConfig(cfg).SetStreamRecvTimeout(recvTimeout)
-	}
-	if setTimeoutConfig {
-		rpcinfo.AsMutableRPCConfig(cfg).SetStreamRecvTimeoutConfig(streaming.TimeoutConfig{
-			Timeout:             configTimeout,
-			DisableCancelRemote: false,
-		})
-	}
-	cliSt.setRecvTimeoutConfig(cfg)
+	cliSt.setRecvTimeout(recvTimeout)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1305,23 +1266,13 @@ func testRecvTimeoutServerStreaming(t *testing.T, setTimeoutConfig, setRecvTimeo
 	wg.Wait()
 }
 
-func testRecvTimeoutBidiStreaming(t *testing.T, setTimeoutConfig, setRecvTimeout bool, recvTimeout, configTimeout time.Duration) {
+func testRecvTimeoutBidiStreaming(t *testing.T, recvTimeout time.Duration) {
 	cliNodeName := "ttstream client"
 	srvNodeName := "ttstream server"
 	method := "BidiStreaming"
 
 	cliSt, srvSt := initTestStreams(t, context.Background(), method, cliNodeName, srvNodeName)
-
-	cfg := rpcinfo.NewRPCConfig()
-	if setRecvTimeout {
-		rpcinfo.AsMutableRPCConfig(cfg).SetStreamRecvTimeout(recvTimeout)
-	}
-	if setTimeoutConfig {
-		rpcinfo.AsMutableRPCConfig(cfg).SetStreamRecvTimeoutConfig(streaming.TimeoutConfig{
-			Timeout: configTimeout,
-		})
-	}
-	cliSt.setRecvTimeoutConfig(cfg)
+	cliSt.setRecvTimeout(recvTimeout)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1377,7 +1328,7 @@ func testSendFailedClientStreaming(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -1439,7 +1390,7 @@ func testSendFailedServerStreaming(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -1521,7 +1472,7 @@ func testSendFailedBidiStreaming(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup

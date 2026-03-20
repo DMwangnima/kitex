@@ -72,15 +72,24 @@ type (
 	Trailer map[string]string
 )
 
-// ClientStream define client stream APIs
+// ClientStream defines client-side streaming APIs.
+//
+// Once RecvMsg or SendMsg returns a non-nil error, the stream should be considered finished
+// and the caller should not make further Send/Recv calls on it.
+// If subsequent calls are made regardless, they will return the same error.
 type ClientStream interface {
-	// SendMsg send message to peer
-	// will block until an error or enough buffer to send
-	// not concurrent-safety
+	// SendMsg sends a message to the peer.
+	// It blocks until the message is sent or an error occurs.
+	// After SendMsg returns a non-nil error, the caller should not make further SendMsg calls.
+	// If subsequent calls are made regardless, they will return the same error.
+	// It is not concurrent-safe.
 	SendMsg(ctx context.Context, m any) error
-	// RecvMsg recvive message from peer
-	// will block until an error or a message received
-	// not concurrent-safety
+	// RecvMsg receives a message from the peer.
+	// It blocks until a message is received or an error occurs.
+	// It returns io.EOF when the stream is done. After RecvMsg returns a non-nil error (including
+	// io.EOF), the caller should not make further RecvMsg calls.
+	// If subsequent calls are made regardless, they will return the same error.
+	// It is not concurrent-safe.
 	RecvMsg(ctx context.Context, m any) error
 	// Header returns the header info received from the server if there
 	// is any. It blocks if the header info is not ready to read.  If the header info
@@ -99,15 +108,28 @@ type ClientStream interface {
 	Context() context.Context
 }
 
-// ServerStream define server stream APIs
+// ServerStream defines server-side streaming APIs.
+//
+// RecvMsg returning io.EOF only indicates the client-to-server direction is done;
+// the server may still call SendMsg after that.
+// Once SendMsg returns a non-nil error or RecvMsg returns any error other than io.EOF,
+// the stream is aborted and the caller should not make further Send/Recv calls on it.
+// If subsequent calls are made regardless, they will return the same error.
 type ServerStream interface {
-	// SendMsg send message to peer
-	// will block until an error or enough buffer to send
-	// not concurrent-safety
+	// SendMsg sends a message to the peer.
+	// It blocks until the message is sent or an error occurs.
+	// After SendMsg returns a non-nil error, the caller should not make further SendMsg calls.
+	// If subsequent calls are made regardless, they will return the same error.
+	// It is not concurrent-safe.
 	SendMsg(ctx context.Context, m any) error
-	// RecvMsg recvive message from peer
-	// will block until an error or a message received
-	// not concurrent-safety
+	// RecvMsg receives a message from the peer.
+	// It blocks until a message is received or an error occurs.
+	// It returns io.EOF when the client-to-server direction is done (i.e. the client called CloseSend);
+	// the server may still call SendMsg after that.
+	// After RecvMsg returns a non-nil error (including io.EOF), the caller should not make further
+	// RecvMsg calls. If subsequent calls are made regardless, they will return the same error.
+	// For non-EOF errors, the stream is aborted entirely.
+	// It is not concurrent-safe.
 	RecvMsg(ctx context.Context, m any) error
 	// SetHeader sets the header info. It may be called multiple times.
 	// When call multiple times, all the provided header info will be merged.

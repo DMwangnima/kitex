@@ -144,7 +144,7 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) (err error)
 	for {
 		var st *serverStream
 		// ReadStream will block until a stream coming or conn return error
-		st, err = trans.ReadStream(ctx)
+		st, err = trans.ReadStream()
 		if err != nil {
 			return
 		}
@@ -176,9 +176,9 @@ func (t *svrTransHandler) OnStream(ctx context.Context, conn net.Conn, st *serve
 
 	ink := ri.Invocation().(rpcinfo.InvocationSetter)
 	// TODO: support protobuf codec, and make `strict` true when combine service is not supported.
-	sinfo := t.opt.SvcSearcher.SearchService(st.Service(), st.Method(), false, serviceinfo.Thrift)
+	sinfo := t.opt.SvcSearcher.SearchService(st.IdlService(), st.Method(), false, serviceinfo.Thrift)
 	if sinfo == nil {
-		err = remote.NewTransErrorWithMsg(remote.UnknownService, fmt.Sprintf("unknown service %s", st.Service()))
+		err = remote.NewTransErrorWithMsg(remote.UnknownService, fmt.Sprintf("unknown service %s", st.IdlService()))
 		return
 	}
 	// TODO: pass-through grpc streaming mode.

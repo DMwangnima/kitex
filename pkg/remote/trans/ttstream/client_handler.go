@@ -18,6 +18,7 @@ package ttstream
 
 import (
 	"context"
+	"time"
 
 	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/gopkg/protocol/ttheader"
@@ -48,6 +49,7 @@ type clientTransHandler struct {
 }
 
 // NewStream creates a client stream
+// ri.Config().StreamRecvTimeoutConfig() would not take effect, only ri.Config().StreamRecvTimeout() takes effect for compatibility.
 func (c clientTransHandler) NewStream(ctx context.Context, ri rpcinfo.RPCInfo) (streaming.ClientStream, error) {
 	rconfig := ri.Config()
 	invocation := ri.Invocation()
@@ -74,6 +76,10 @@ func (c clientTransHandler) NewStream(ctx context.Context, ri rpcinfo.RPCInfo) (
 	}
 	strHeader[ttheader.HeaderIDLServiceName] = invocation.ServiceName()
 	metainfo.SaveMetaInfoToMap(ctx, strHeader)
+	var tm time.Duration
+	if ddl, ok := ctx.Deadline(); ok {
+		tm = time.Until(ddl)
+	}
 
 	trans, err := c.transPool.Get(addr.Network(), addr.String())
 	if err != nil {
@@ -84,9 +90,16 @@ func (c clientTransHandler) NewStream(ctx context.Context, ri rpcinfo.RPCInfo) (
 	cs := newClientStream(ctx, trans, streamFrame{sid: genStreamID(), method: method})
 	// stream should be configured before WriteStream or there would be a race condition for metaFrameHandler
 
-	cs.setRecvTimeoutConfig(rconfig)
+	// only compatible for client.WithStreamRecvTimeout | streamcall.WithRecvTimeout.
+	// client.WithStreamRecvTimeoutConfig | streamcall.WithRecvTimeoutConfig would only take effect in the outside client/stream layer.
+	// when RecvTimeout and RecvTimeoutConfig are both configured, RecvTimeout would not take effect.
+	if rconfig.StreamRecvTimeoutConfig().Timeout <= 0 {
+		cs.setRecvTimeout(rconfig.StreamRecvTimeout())
+	}
+
 	cs.setMetaFrameHandler(c.metaHandler)
 	cs.setTraceController(c.traceCtl)
+	cs.setStreamTimeout(tm)
 
 	if err = trans.WriteStream(ctx, cs, intHeader, strHeader); err != nil {
 		return nil, err

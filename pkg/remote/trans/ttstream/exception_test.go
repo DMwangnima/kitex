@@ -27,7 +27,6 @@ import (
 
 	"github.com/cloudwego/kitex/internal/test"
 	"github.com/cloudwego/kitex/pkg/kerrors"
-	"github.com/cloudwego/kitex/pkg/streaming"
 )
 
 func TestErrors(t *testing.T) {
@@ -46,7 +45,7 @@ func TestErrors(t *testing.T) {
 	test.Assert(t, !newExWithNilErr.isCauseSet(), newExWithNilErr)
 	test.Assert(t, newExWithNilErr.cause == nil, newExWithNilErr)
 
-	recvTmErr := newStreamRecvTimeoutException(streaming.TimeoutConfig{Timeout: 1 * time.Second})
+	recvTmErr := newStreamRecvTimeoutException(1 * time.Second)
 	test.Assert(t, errors.Is(recvTmErr, kerrors.ErrStreamingTimeout), recvTmErr)
 }
 
@@ -77,7 +76,7 @@ func TestCommonParentKerror(t *testing.T) {
 
 	// timeout Exception
 	errs = []error{
-		newStreamRecvTimeoutException(streaming.TimeoutConfig{Timeout: 1 * time.Second}),
+		newStreamRecvTimeoutException(1 * time.Second),
 	}
 	for _, err := range errs {
 		test.Assert(t, errors.Is(err, kerrors.ErrStreamingTimeout), err)
@@ -91,14 +90,14 @@ func TestGetTypeId(t *testing.T) {
 		err          error
 		expectTypeId int32
 	}{
-		{err: errApplicationException, expectTypeId: 12001},
-		{err: errUnexpectedHeader, expectTypeId: 12002},
-		{err: errIllegalBizErr, expectTypeId: 12003},
-		{err: errIllegalFrame, expectTypeId: 12004},
-		{err: errIllegalOperation, expectTypeId: 12005},
-		{err: errTransport, expectTypeId: 12006},
+		{err: errApplicationException, expectTypeId: errApplicationExceptionTypeId},
+		{err: errUnexpectedHeader, expectTypeId: errUnexpectedHeaderTypeId},
+		{err: errIllegalBizErr, expectTypeId: errIllegalBizErrTypeId},
+		{err: errIllegalFrame, expectTypeId: errIllegalFrameTypeId},
+		{err: errIllegalOperation, expectTypeId: errIllegalOperationTypeId},
+		{err: errTransport, expectTypeId: errTransportTypeId},
 		{err: errApplicationException.newBuilder().withCauseAndTypeId(exception, 1000), expectTypeId: 1000},
-		{err: errApplicationException.newBuilder().withCause(normalErr), expectTypeId: 12001},
+		{err: errApplicationException.newBuilder().withCause(normalErr), expectTypeId: errApplicationExceptionTypeId},
 	}
 
 	for _, testcase := range testcases {

@@ -68,7 +68,7 @@ func WithStreamRecvTimeout(d time.Duration) StreamOption {
 //		    DisableCancelRemote: true,
 //	})
 //
-// The remote peer must promptly exit the handler; otherwise, there is a risk of stream leakage!
+// IMPORTANT: The remote peer must promptly exit the handler; otherwise, there is a risk of stream and Recv goroutine leakage!
 func WithStreamRecvTimeoutConfig(cfg streaming.TimeoutConfig) StreamOption {
 	return StreamOption{F: func(o *client.StreamOptions, di *utils.Slice) {
 		di.Push(fmt.Sprintf("WithStreamRecvTimeoutConfig(%+v)", cfg))

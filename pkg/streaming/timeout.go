@@ -35,6 +35,8 @@ type TimeoutConfig struct {
 	// However, in certain scenarios (e.g., resume-enabled transfers: A → B → C), A may not wish to cancel B and C upon detecting a timeout.
 	// Instead, it expects B and C to complete one round of streaming communication and cache the results.
 	// This allows A to resume the request from the disconnected point on the next attempt, completing the resume-from-breakpoint process.
+	//
+	// Even if DisableCancelRemote=true, no retry will occur after the Recv/Send timeout.
 	DisableCancelRemote bool
 }
 
