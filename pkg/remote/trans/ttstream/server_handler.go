@@ -144,7 +144,7 @@ func (t *svrTransHandler) OnRead(ctx context.Context, conn net.Conn) (err error)
 	for {
 		var st *serverStream
 		// ReadStream will block until a stream coming or conn return error
-		st, err = trans.ReadStream(ctx)
+		st, err = trans.ReadStream()
 		if err != nil {
 			return
 		}

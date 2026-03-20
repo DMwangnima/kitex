@@ -31,11 +31,11 @@ func TestStreamReader(t *testing.T) {
 	round := 10000
 
 	// basic IOs
-	sio := newStreamReader()
+	sio := newStreamReader(ctx, nil)
 	doneCh := make(chan struct{})
 	go func() {
 		for i := 0; i < round; i++ {
-			sio.input(ctx, msg)
+			sio.input(msg)
 		}
 		close(doneCh)
 	}()
@@ -47,7 +47,7 @@ func TestStreamReader(t *testing.T) {
 	// wait for goroutine exited
 	<-doneCh
 	// exception IOs
-	sio.input(ctx, msg)
+	sio.input(msg)
 	targetErr := errors.New("test")
 	sio.close(targetErr)
 	payload, err := sio.output(ctx)
@@ -59,8 +59,8 @@ func TestStreamReader(t *testing.T) {
 
 	// ctx canceled IOs
 	ctx, cancel := context.WithCancel(ctx)
-	sio = newStreamReader()
-	sio.input(ctx, msg)
+	sio = newStreamReader(ctx, nil)
+	sio.input(msg)
 	go func() {
 		time.Sleep(time.Millisecond * 10)
 		cancel()

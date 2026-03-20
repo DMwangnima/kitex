@@ -225,6 +225,6 @@ func (s *stream) sendRst(exception error, cancelPath string) (err error) {
 // === Frame OnRead callback
 
 func (s *stream) onReadDataFrame(fr *Frame) (err error) {
-	s.reader.input(context.Background(), fr.payload)
+	s.reader.input(fr.payload)
 	return nil
 }

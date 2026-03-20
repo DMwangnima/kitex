@@ -41,7 +41,7 @@ func newClientStream(ctx context.Context, writer streamWriter, smeta streamFrame
 		headerSig:  make(chan int32, 1),
 		trailerSig: make(chan int32, 1),
 	}
-	s.reader = newStreamReaderWithCtxDoneCallback(cs.ctxDoneCallback)
+	s.reader = newStreamReader(ctx, cs.ctxDoneCallback)
 	return cs
 }
 
@@ -130,10 +130,10 @@ func (s *clientStream) Context() context.Context {
 
 // ctxDoneCallback convert ctx.Err() to ttstream related err and close client-side stream.
 // it is invoked in container.Pipe
-func (s *clientStream) ctxDoneCallback(ctx context.Context) {
+func (s *clientStream) ctxDoneCallback(ctx context.Context) error {
 	finalEx, noCancel, cancelPath := s.parseCtxErr(ctx)
-
 	s.close(finalEx, !noCancel, cancelPath, nil)
+	return finalEx
 }
 
 // parseCtxErr parses information in ctx.Err and returning ttstream Exception and cascading cancelPath

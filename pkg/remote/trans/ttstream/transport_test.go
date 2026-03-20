@@ -82,7 +82,7 @@ func TestTransportBasic(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -151,7 +151,7 @@ func TestTransportServerStreaming(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -216,7 +216,7 @@ func TestTransportException(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, make(IntHeader), make(streaming.Header))
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 	res := new(testResponse)
 	res.A = 123
@@ -245,7 +245,7 @@ func TestTransportException(t *testing.T) {
 	cs = newClientStream(ctx, ctrans, streamFrame{sid: genStreamID(), method: "Bidi"})
 	err = ctrans.WriteStream(ctx, cs, make(IntHeader), make(streaming.Header))
 	test.Assert(t, err == nil, err)
-	ss, err = strans.ReadStream(context.Background())
+	ss, err = strans.ReadStream()
 	test.Assert(t, err == nil, err)
 	test.Assert(t, ss != nil)
 	_, err = sconn.Writer().WriteBinary([]byte("helloxxxxxxxxxxxxxxxxxxxxxx"))
@@ -275,7 +275,7 @@ func TestTransportClose(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -353,7 +353,7 @@ func Test_clientStreamReceiveTrailer(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -577,7 +577,7 @@ func initTestStreams(t *testing.T, cCtx context.Context, method, cliNodeName, sr
 	err = ctrans.WriteStream(cCtx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 	ss.rpcInfo = rpcinfo.NewRPCInfo(
 		rpcinfo.NewEndpointInfo(srvNodeName, method, nil, nil), nil, nil, nil, nil)
@@ -1377,7 +1377,7 @@ func testSendFailedClientStreaming(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -1439,7 +1439,7 @@ func testSendFailedServerStreaming(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup
@@ -1521,7 +1521,7 @@ func testSendFailedBidiStreaming(t *testing.T) {
 	err = ctrans.WriteStream(ctx, cs, intHeader, strHeader)
 	test.Assert(t, err == nil, err)
 	strans := newServerTransport(sconn)
-	ss, err := strans.ReadStream(context.Background())
+	ss, err := strans.ReadStream()
 	test.Assert(t, err == nil, err)
 
 	var wg sync.WaitGroup

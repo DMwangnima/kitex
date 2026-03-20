@@ -18,11 +18,10 @@ package ttstream
 
 import (
 	"context"
-	"errors"
 	"io"
 
 	"github.com/cloudwego/kitex/pkg/klog"
-	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream/container"
+	"github.com/cloudwego/kitex/pkg/remote/trans/ttstream/internal/container"
 )
 
 // streamReader is an abstraction layer for stream level IO operations
@@ -37,27 +36,21 @@ type streamMsg struct {
 	exception error
 }
 
-func newStreamReader() *streamReader {
+func newStreamReader(ctx context.Context, callback container.CtxDoneCallback) *streamReader {
 	sio := new(streamReader)
-	sio.pipe = container.NewPipe[streamMsg]()
+	sio.pipe = container.NewPipe[streamMsg](ctx, callback)
 	return sio
 }
 
-func newStreamReaderWithCtxDoneCallback(callback container.CtxDoneCallback) *streamReader {
-	sio := new(streamReader)
-	sio.pipe = container.NewPipe[streamMsg](container.WithCtxDoneCallback(callback))
-	return sio
-}
-
-func (s *streamReader) input(ctx context.Context, payload []byte) {
-	err := s.pipe.Write(ctx, streamMsg{payload: payload})
+func (s *streamReader) input(payload []byte) {
+	err := s.pipe.Write(streamMsg{payload: payload})
 	if err != nil {
 		klog.Errorf("stream pipe input failed: %v", err)
 	}
 }
 
 // output would return err in the following scenarios:
-// - pipe finished: container.ErrPipeEOF, container.ErrPipeCanceled
+// - pipe finished: io.EOF
 // - ctx Done() triggered: ctx.Err()
 // - trailer frame contains err: streamMsg.exception
 func (s *streamReader) output(ctx context.Context) (payload []byte, err error) {
@@ -65,11 +58,9 @@ func (s *streamReader) output(ctx context.Context) (payload []byte, err error) {
 		return nil, s.exception
 	}
 
-	n, err := s.pipe.Read(ctx, s.cache[:])
+	// todo: 占位
+	n, err := s.pipe.ReadCtx(ctx, nil, s.cache[:])
 	if err != nil {
-		if errors.Is(err, container.ErrPipeEOF) {
-			err = io.EOF
-		}
 		s.exception = err
 		return nil, s.exception
 	}
@@ -87,7 +78,7 @@ func (s *streamReader) output(ctx context.Context) (payload []byte, err error) {
 
 func (s *streamReader) close(exception error) {
 	if exception != nil {
-		_ = s.pipe.Write(context.Background(), streamMsg{exception: exception})
+		_ = s.pipe.Write(streamMsg{exception: exception})
 	}
 	s.pipe.Close()
 }
