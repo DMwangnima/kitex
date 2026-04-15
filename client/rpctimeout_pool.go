@@ -18,6 +18,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"sync"
@@ -28,6 +29,8 @@ import (
 	"github.com/cloudwego/kitex/pkg/profiler"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 )
+
+var errUserProvidedContextNonCompliant = errors.New("user-provided context does not comply with context.Context conventions, ctx.Done() triggered but ctx.Err() returns nil. please check your code")
 
 // timeoutPool is a worker pool for task with timeout
 type timeoutPool struct {
@@ -251,7 +254,7 @@ func (t *timeoutTask) Wait() (context.Context, error) {
 		return t.ctx, nil
 
 	case <-t.ctx.Context.Done(): // parent done
-		t.Cancel(t.ctx.Context.Err())
+		return t.handleParentDone()
 	case <-tm.C: // timeout
 		t.Cancel(context.DeadlineExceeded)
 	}
@@ -268,9 +271,36 @@ func (t *timeoutTask) waitNoTimeout() (context.Context, error) {
 		return t.ctx, nil
 
 	case <-t.ctx.Context.Done(): // parent done
-		t.Cancel(t.ctx.Context.Err())
-		return t.ctx, t.ctx.Err()
+		return t.handleParentDone()
 	}
+}
+
+// handleParentDone is called when t.ctx.Context.Done() fires (parent context cancelled or timed out).
+// It propagates the parent's cancellation to the internal timeoutContext via Cancel.
+//
+// Defense against non-compliant context implementations:
+//
+// The context.Context contract requires that after Done() is closed, Err() must return non-nil.
+// However, some custom implementations violate this — for example, a "WithoutCancel" wrapper
+// that embeds the parent (inheriting its Done channel) but overrides Err() to always return nil.
+// When such a context is used and Cancel receives nil, it becomes a no-op: the timeoutContext's
+// ch is never closed and Err() remains nil. This causes the following panic chain:
+//
+//  1. Wait() returns (ctx, nil) to rpcTimeoutMW → rpcTimeoutMW returns nil to Call()
+//  2. Call() sees err==nil → sets recycleRI=true → PutRPCInfo recycles the RPCInfo (zeroing ri.to)
+//  3. Worker goroutine is still running → accesses ri.To().ServiceName() → nil pointer panic
+//  4. The panic is caught by Run()'s recover → ClientPanicToErr also calls ri.To() → double panic
+//
+// To prevent this, we check parentErr before Cancel. If nil, we substitute a sentinel error.
+// This guarantees Cancel always receives a non-nil error, so the timeoutContext's ch is always
+// closed (unblocking downstream goroutines) and Err() always returns non-nil.
+func (t *timeoutTask) handleParentDone() (context.Context, error) {
+	parentErr := t.ctx.Context.Err()
+	if parentErr == nil {
+		parentErr = errUserProvidedContextNonCompliant
+	}
+	t.Cancel(parentErr)
+	return t.ctx, t.ctx.Err()
 }
 
 type timeoutContext struct {

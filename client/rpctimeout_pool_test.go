@@ -146,4 +146,98 @@ func TestTask(t *testing.T) {
 		test.Assert(t, err != nil && strings.Contains(err.Error(), "testpanic"), err)
 		test.Assert(t, ctx.Err() == context.Canceled, ctx.Err())
 	})
+
+	// Tests for handleParentDone defense against non-compliant context implementations.
+	// A non-compliant context has Done() that fires but Err() that returns nil,
+	// which would cause Wait() to return nil error → recycleRI=true → RPCInfo recycled
+	// while the worker goroutine is still running → nil pointer panic.
+
+	t.Run("NonCompliantParentCtxDone_NoTimeout", func(t *testing.T) {
+		// timeout=0 with non-compliant parent → exercises waitNoTimeout() path
+		parent := &nonCompliantCtx{
+			Context: context.Background(),
+			done:    make(chan struct{}),
+		}
+		started := make(chan struct{})
+		p := newTimeoutTask(parent, 0, nil, nil,
+			func(ctx context.Context, _, _ any) error {
+				close(started)
+				<-ctx.Done() // block until cancelled
+				return nil
+			})
+
+		go p.Run()
+		<-started          // ensure endpoint is running
+		close(parent.done) // simulate parent cancellation with nil Err()
+
+		wCtx, err := p.Wait()
+		test.Assert(t, err != nil)
+		test.Assert(t, errors.Is(err, errUserProvidedContextNonCompliant), err)
+		// timeoutContext.ch must be closed so downstream goroutines are unblocked
+		select {
+		case <-wCtx.Done():
+		default:
+			t.Fatal("expected wCtx.Done() to be closed")
+		}
+	})
+
+	t.Run("NonCompliantParentCtxDone_WithTimeout", func(t *testing.T) {
+		// timeout>0 with non-compliant parent → exercises Wait() timer-path select
+		parent := &nonCompliantCtx{
+			Context: context.Background(),
+			done:    make(chan struct{}),
+		}
+		started := make(chan struct{})
+		p := newTimeoutTask(parent, time.Second, nil, nil,
+			func(ctx context.Context, _, _ any) error {
+				close(started)
+				<-ctx.Done()
+				return nil
+			})
+
+		go p.Run()
+		<-started
+		close(parent.done)
+
+		wCtx, err := p.Wait()
+		test.Assert(t, err != nil)
+		test.Assert(t, errors.Is(err, errUserProvidedContextNonCompliant), err)
+		select {
+		case <-wCtx.Done():
+		default:
+			t.Fatal("expected wCtx.Done() to be closed")
+		}
+	})
+
+	t.Run("CompliantParentCanceled", func(t *testing.T) {
+		parent, cancel := context.WithCancel(context.Background())
+		started := make(chan struct{})
+		p := newTimeoutTask(parent, time.Second, nil, nil,
+			func(ctx context.Context, _, _ any) error {
+				close(started)
+				<-ctx.Done()
+				return nil
+			})
+
+		go p.Run()
+		<-started
+		cancel() // compliant cancel: Done() fires and Err() returns context.Canceled
+
+		wCtx, err := p.Wait()
+		test.Assert(t, err != nil)
+		test.Assert(t, errors.Is(err, context.Canceled), err)
+		test.Assert(t, errors.Is(wCtx.Err(), context.Canceled), wCtx.Err())
+	})
 }
+
+// nonCompliantCtx is a context that violates the context.Context contract:
+// Done() returns a closeable channel, but Err() always returns nil.
+// This simulates buggy custom context wrappers (e.g. a "WithoutCancel" that
+// embeds the parent — inheriting Done() — but overrides Err() to return nil).
+type nonCompliantCtx struct {
+	context.Context
+	done chan struct{}
+}
+
+func (c *nonCompliantCtx) Done() <-chan struct{} { return c.done }
+func (c *nonCompliantCtx) Err() error            { return nil }

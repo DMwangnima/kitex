@@ -46,6 +46,11 @@ func makeTimeoutErr(ctx context.Context, start time.Time, timeout time.Duration)
 
 	needFineGrainedErrCode := rpctimeout.LoadGlobalNeedFineGrainedErrCode()
 	// cancel error
+	// Non-compliant parent context (Done() fired but Err() returned nil).
+	// check errUserProvidedContextNonCompliant returned by timeoutTask.Wait() directly
+	if errors.Is(ctx.Err(), errUserProvidedContextNonCompliant) {
+		return kerrors.ErrCanceledByBusiness.WithCause(fmt.Errorf("%s: %w", errMsg, ctx.Err()))
+	}
 	if ctx.Err() == context.Canceled {
 		if needFineGrainedErrCode {
 			return kerrors.ErrCanceledByBusiness.WithCause(errors.New(errMsg))

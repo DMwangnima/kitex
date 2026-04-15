@@ -314,6 +314,64 @@ func Test_isBusinessTimeout(t *testing.T) {
 	}
 }
 
+// Test_rpcTimeoutMWNonCompliantCtx verifies that rpcTimeoutMW correctly handles a
+// non-compliant parent context (Done() fires but Err() returns nil).
+// The error must be returned directly as errUserProvidedContextNonCompliant,
+// NOT routed through makeTimeoutErr (which would produce a misleading "rpc timeout" message).
+func Test_rpcTimeoutMWNonCompliantCtx(t *testing.T) {
+	t.Run("WithRPCTimeout", func(t *testing.T) {
+		// RPCTimeout > 0 → Wait() enters timer-path select
+		parent := &nonCompliantCtx{
+			Context: context.Background(),
+			done:    make(chan struct{}),
+		}
+		nCtx := rpcinfo.NewCtxWithRPCInfo(parent, mockRPCInfo(time.Second))
+
+		started := make(chan struct{})
+		mw := rpcTimeoutMW(context.Background())
+		ep := mw(func(ctx context.Context, req, rsp interface{}) error {
+			close(started)
+			<-ctx.Done() // block until cancelled
+			return nil
+		})
+
+		go func() {
+			<-started
+			close(parent.done)
+		}()
+
+		err := ep(nCtx, nil, nil)
+		test.Assert(t, err != nil)
+		test.Assert(t, errors.Is(err, kerrors.ErrCanceledByBusiness), err)
+		test.Assert(t, strings.Contains(err.Error(), errUserProvidedContextNonCompliant.Error()), err)
+	})
+	t.Run("WithoutRPCTimeout", func(t *testing.T) {
+		parent := &nonCompliantCtx{
+			Context: context.Background(),
+			done:    make(chan struct{}),
+		}
+		nCtx := rpcinfo.NewCtxWithRPCInfo(parent, mockRPCInfo(0))
+
+		started := make(chan struct{})
+		mw := rpcTimeoutMW(context.Background())
+		ep := mw(func(ctx context.Context, req, rsp interface{}) error {
+			close(started)
+			<-ctx.Done()
+			return nil
+		})
+
+		go func() {
+			<-started
+			close(parent.done)
+		}()
+
+		err := ep(nCtx, nil, nil)
+		test.Assert(t, err != nil)
+		test.Assert(t, errors.Is(err, kerrors.ErrCanceledByBusiness), err)
+		test.Assert(t, strings.Contains(err.Error(), errUserProvidedContextNonCompliant.Error()), err)
+	})
+}
+
 func BenchmarkRPCTimeoutMW(b *testing.B) {
 	s := rpcinfo.NewEndpointInfo("mockService", "mockMethod", nil, nil)
 	c := rpcinfo.NewRPCConfig()
